@@ -208,7 +208,8 @@ function rgba(hex,a){const[r,g,b]=hexRGB(hex);return `rgba(${r},${g},${b},${a})`
 function neonText(ctx,s,x,y,size,color,blur){
   ctx.save();ctx.font=`800 ${size}px ui-monospace,monospace`;ctx.textAlign='center';ctx.textBaseline='middle';
   ctx.shadowColor=color;ctx.shadowBlur=blur;ctx.fillStyle=color;ctx.fillText(s,x,y);ctx.fillText(s,x,y);ctx.restore();}
-function litFactor(st){return st==='working'||st==='active'?1:st==='idle'?0.72:st==='afk'?0.5:0.14;}
+/* rooms stay lit regardless of status — status reads from the sign dot/label */
+function litFactor(st){return st==='working'||st==='active'?1:st==='idle'?0.95:st==='afk'?0.9:0.85;}
 function hash2(i,j){let h=(i*374761393+j*668265263)^(i<<7);h=(h^(h>>13))*1274126177;return ((h^(h>>16))>>>0)/4294967295;}
 function rr(ctx,x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);
   ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();}
@@ -284,7 +285,7 @@ function moduleSign(r,name,st,neon,x,y){
   neonText(bctx,label,x+sw/2+4,y+(fs+8)/2+0.5,fs,lit>0.3?neon:'#3d3752',lit>0.3?8:0);
   bctx.fillStyle=DOT_HEX[st];bctx.beginPath();bctx.arc(x+8,y+(fs+8)/2,2.6,0,7);bctx.fill();
 }
-function offlineShade(r){bctx.fillStyle='rgba(4,3,12,.55)';bctx.fillRect(r.x-6,r.y-10,r.w+12,r.h+16);}
+function offlineShade(r){/* no blackout — inactive rooms keep their lights on */}
 function floorPlate(r,neon,lit,inset){
   const fy=r.feetY+3;
   vgrad(bctx,r.x+inset,fy,r.w-2*inset,6,dim(neon,0.25+0.2*lit),'#0a0614');
