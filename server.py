@@ -68,6 +68,21 @@ async def api_diagnostics() -> JSONResponse:
     return JSONResponse(agent_status.diagnostics())
 
 
+@app.get("/api/feed")
+async def api_feed(limit: int = 15) -> JSONResponse:
+    """Village feed: delegations + the target agent's first reply after each."""
+    return JSONResponse({"feed": agent_status.get_feed(limit=min(limit, 40))})
+
+
+@app.get("/api/messages/{thread}")
+async def api_messages(thread: int, limit: int = 30) -> JSONResponse:
+    """One agent's internal chat (recent user/assistant messages, oldest first)."""
+    return JSONResponse({
+        "thread": thread,
+        "messages": agent_status.get_thread_messages(thread, limit=min(limit, 100)),
+    })
+
+
 @app.get("/api/agents/stream")
 async def api_stream(request: Request) -> StreamingResponse:
     async def event_gen():

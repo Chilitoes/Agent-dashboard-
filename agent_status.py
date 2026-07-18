@@ -349,10 +349,20 @@ def get_delegations(limit: int = 20, since: float | None = None) -> list[dict]:
     finally:
         con.close()
 
-    # de-dupe by id, keep the highest-precision source per (target, ~timestamp)
+    # De-dupe: drop keyword events when a higher-precision event (marker or
+    # session) exists for the same target within a short window — they are the
+    # same real-world delegation seen twice (user msg + General's reply).
+    precise = [e for e in events if e["source"] != "keyword"]
+    kept = []
+    for e in sorted(events, key=lambda e: e["ts"]):
+        if e["source"] == "keyword" and any(
+                p["to"] == e["to"] and abs(p["ts"] - e["ts"]) < 180 for p in precise):
+            continue
+        kept.append(e)
+
     seen = set()
     uniq = []
-    for e in sorted(events, key=lambda e: e["ts"]):
+    for e in kept:
         if e["id"] in seen:
             continue
         seen.add(e["id"])
@@ -360,6 +370,71 @@ def get_delegations(limit: int = 20, since: float | None = None) -> list[dict]:
             continue
         uniq.append(e)
     return uniq[-limit:]
+
+
+# --------------------------------------------------------------------------
+# Room internal chat + village feed (read-only views for the UI)
+# --------------------------------------------------------------------------
+def get_thread_messages(thread: int, limit: int = 30) -> list[dict]:
+    """Recent user/assistant messages for one agent's thread (its 'internal
+    chat'), oldest first. Content is truncated for display."""
+    con = _connect()
+    if con is None:
+        return []
+    try:
+        q = (
+            "SELECT m.role AS role, m.content AS content, m.timestamp AS ts "
+            "FROM messages m JOIN sessions s ON m.session_id = s.id "
+            "WHERE s.thread_id = ? AND m.role IN ('user','assistant') "
+            "  AND m.content IS NOT NULL AND TRIM(m.content) != '' "
+            "ORDER BY m.timestamp DESC LIMIT ?"
+        )
+        rows = con.execute(q, (thread, limit)).fetchall()
+    except sqlite3.Error:
+        return []
+    finally:
+        con.close()
+    out = [{"role": str(r["role"]).lower(),
+            "content": str(r["content"])[:500],
+            "ts": _to_epoch(r["ts"])} for r in rows]
+    out.reverse()
+    return out
+
+
+def get_feed(limit: int = 15) -> list[dict]:
+    """Village feed: each delegation (General's TLDR) plus the target agent's
+    first assistant reply after the delegation, if any."""
+    delegs = get_delegations(limit)
+    con = _connect()
+    if con is None:
+        return delegs
+    try:
+        for d in delegs:
+            if not d.get("thread"):
+                d["reply"] = None
+                continue
+            # timestamp format varies (epoch vs ISO), so compare in Python
+            try:
+                rows = con.execute(
+                    "SELECT m.content AS content, m.timestamp AS ts "
+                    "FROM messages m JOIN sessions s ON m.session_id = s.id "
+                    "WHERE s.thread_id = ? AND m.role = 'assistant' "
+                    "  AND m.content IS NOT NULL AND TRIM(m.content) != '' "
+                    "ORDER BY m.timestamp DESC LIMIT 25",
+                    (d["thread"],)).fetchall()
+            except sqlite3.Error:
+                rows = []
+            reply = None
+            for r in rows:  # newest→oldest; keep the OLDEST one after the delegation
+                rts = _to_epoch(r["ts"])
+                if rts > d["ts"]:
+                    reply = {"content": str(r["content"])[:280], "ts": rts}
+                else:
+                    break
+            d["reply"] = reply
+    finally:
+        con.close()
+    return delegs
 
 
 def get_watermark() -> str:
