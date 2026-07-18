@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Village</title>
+<style>
+  :root {
+    --bg: #0e1016;
+    --panel: #161a24;
+    --panel-2: #1d2230;
+    --ink: #e7ecf5;
+    --muted: #8b93a7;
+    --line: #2a3040;
+    --dot-working: #3fd07a;
+    --dot-active: #3fd07a;
+    --dot-idle: #e0a458;
+    --dot-afk: #5b8dd6;
+    --dot-offline: #6b7280;
+    --shadow: 0 8px 30px rgba(0,0,0,.35);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; height: 100%;
+    background: radial-gradient(1200px 800px at 50% -10%, #1a2030, var(--bg));
+    color: var(--ink);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  .wrap {
+    max-width: 820px; margin: 0 auto; padding: 24px 16px 40px;
+    display: flex; flex-direction: column; min-height: 100%;
+  }
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; margin-bottom: 18px; flex-wrap: wrap;
+  }
+  h1 { font-size: 20px; margin: 0; letter-spacing: .3px; }
+  h1 .sub { color: var(--muted); font-weight: 500; font-size: 13px; margin-left: 8px; }
+  .conn { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+  .conn .led { width: 8px; height: 8px; border-radius: 50%; background: var(--dot-offline); }
+  .conn.live .led { background: var(--dot-working); box-shadow: 0 0 8px var(--dot-working); }
+
+  /* Board */
+  .board {
+    position: relative;
+    width: 100%; aspect-ratio: 1 / 1;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    grid-template-rows: repeat(3, 1fr);
+    gap: 10px;
+  }
+  .room {
+    position: relative;
+    border-radius: 14px;
+    border: 1px solid var(--line);
+    background: var(--room-color, var(--panel));
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    padding: 8px; cursor: pointer; overflow: hidden;
+    transition: transform .15s ease, box-shadow .25s ease, border-color .25s ease;
+  }
+  .room:hover { transform: translateY(-2px); border-color: #3a445e; }
+  .room .emoji { font-size: clamp(26px, 7vw, 44px); line-height: 1; filter: drop-shadow(0 2px 4px rgba(0,0,0,.4)); }
+  .room .name { margin-top: 6px; font-size: clamp(10px, 2.4vw, 13px); font-weight: 600; }
+  .room .status { margin-top: 2px; font-size: 10px; color: rgba(255,255,255,.72); }
+  .room .dot {
+    position: absolute; top: 8px; right: 8px;
+    width: 9px; height: 9px; border-radius: 50%;
+    background: var(--dot-offline); border: 2px solid rgba(0,0,0,.25);
+  }
+  .room[data-status="working"] .dot,
+  .room[data-status="active"] .dot { background: var(--dot-working); box-shadow: 0 0 8px var(--dot-working); }
+  .room[data-status="idle"] .dot { background: var(--dot-idle); }
+  .room[data-status="afk"] .dot { background: var(--dot-afk); }
+  .room[data-status="offline"] .dot { background: var(--dot-offline); }
+  .room[data-status="offline"] { opacity: .55; }
+  .room[data-status="offline"] .emoji { filter: grayscale(1) drop-shadow(0 2px 4px rgba(0,0,0,.4)); }
+  .room.hub { border-color: rgba(255,255,255,.35); }
+  .room.working-pulse::after {
+    content: ""; position: absolute; inset: 0; border-radius: 14px;
+    box-shadow: inset 0 0 0 2px var(--dot-working);
+    animation: pulse 1.8s ease-in-out infinite; pointer-events: none;
+  }
+  @keyframes pulse { 0%,100% { opacity: .25; } 50% { opacity: .9; } }
+  .room.receiving { animation: recv .6s ease; }
+  @keyframes recv { 0% { transform: scale(1); } 40% { transform: scale(1.05); } 100% { transform: scale(1); } }
+
+  /* Walker: an absolutely positioned sprite that glides room-to-room.
+     Its transform is owned ONLY by the walk logic; status refreshes never
+     touch it, so a walk can never be silently interrupted. */
+  .walker {
+    position: absolute; top: 0; left: 0;
+    width: 34px; height: 34px; margin: -17px 0 0 -17px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px; border-radius: 50%;
+    background: #5b6ee1; box-shadow: 0 4px 14px rgba(0,0,0,.45);
+    border: 2px solid rgba(255,255,255,.8);
+    transition: transform .9s cubic-bezier(.5,.05,.3,1);
+    z-index: 5; pointer-events: none;
+    will-change: transform;
+  }
+  .walker.walking { animation: bob .28s ease-in-out infinite; }
+  @keyframes bob { 0%,100% { margin-top: -17px; } 50% { margin-top: -21px; } }
+
+  footer { margin-top: 18px; color: var(--muted); font-size: 11px; text-align: center; }
+  footer code { color: #aab3c8; }
+
+  /* Modal */
+  .modal-back {
+    position: fixed; inset: 0; background: rgba(0,0,0,.5);
+    display: none; align-items: center; justify-content: center; z-index: 20; padding: 16px;
+  }
+  .modal-back.open { display: flex; }
+  .modal {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 16px;
+    padding: 22px; max-width: 340px; width: 100%; box-shadow: var(--shadow);
+  }
+  .modal .head { display: flex; align-items: center; gap: 12px; }
+  .modal .head .emoji { font-size: 40px; }
+  .modal h2 { margin: 0; font-size: 18px; }
+  .modal .st { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .modal p { color: #c3cad8; font-size: 13px; line-height: 1.5; }
+  .modal .meta { font-size: 12px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 10px; margin-top: 10px; }
+  .modal .close { margin-top: 14px; width: 100%; padding: 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel-2); color: var(--ink); cursor: pointer; font-size: 13px; }
+  .modal .close:hover { background: #232838; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Agent Village <span class="sub">live view of your Hermes agents</span></h1>
+    <div class="conn" id="conn"><span class="led"></span><span id="connText">connecting…</span></div>
+  </header>
+
+  <div class="board" id="board">
+    <div class="walker" id="walker">⚙️</div>
+  </div>
+
+  <footer>
+    Read-only window into <code>~/.hermes/state.db</code>. General delegates on
+    his own — a walk means a child session was spawned under General's thread.
+  </footer>
+</div>
+
+<div class="modal-back" id="modalBack">
+  <div class="modal" id="modal"></div>
+</div>
+
+<script>
+const board = document.getElementById('board');
+const walker = document.getElementById('walker');
+const connEl = document.getElementById('conn');
+const connText = document.getElementById('connText');
+
+let AGENTS = [];
+let byId = {};
+const roomEls = {};
+const seenDelegations = new Set();
+
+function statusColorRoom(color) {
+  // dim the flat tile color so text/emoji pop
+  return color || '#1d2230';
+}
+
+async function boot() {
+  const cfg = await fetch('agents.json').then(r => r.json()).catch(() => null);
+  AGENTS = cfg ? cfg.agents : [];
+  byId = Object.fromEntries(AGENTS.map(a => [a.id, a]));
+  buildBoard();
+  // initial status
+  try {
+    const data = await fetch('api/agents').then(r => r.json());
+    applyAgents(data.agents);
+  } catch (e) { /* SSE will fill in */ }
+  placeWalkerAt('general');
+  connectSSE();
+  window.addEventListener('resize', () => placeWalkerAt('general'));
+}
+
+function buildBoard() {
+  // rooms are grid cells; keep the walker as the last child (on top)
+  AGENTS.forEach(a => {
+    const el = document.createElement('div');
+    el.className = 'room' + (a.isHub ? ' hub' : '');
+    el.style.gridColumn = (a.col + 1);
+    el.style.gridRow = (a.row + 1);
+    el.style.setProperty('--room-color', shade(a.color, -0.55));
+    el.dataset.agent = a.id;
+    el.dataset.status = 'offline';
+    el.innerHTML = `
+      <span class="dot"></span>
+      <span class="emoji">${a.emoji}</span>
+      <span class="name">${a.name}</span>
+      <span class="status">—</span>`;
+    el.addEventListener('click', () => showInfo(a.id));
+    board.insertBefore(el, walker);
+    roomEls[a.id] = el;
+  });
+}
+
+function applyAgents(agents) {
+  agents.forEach(a => {
+    const el = roomEls[a.id];
+    if (!el) return;
+    el.dataset.status = a.status;
+    el.querySelector('.status').textContent = a.statusLabel;
+    el.classList.toggle('working-pulse', a.status === 'working');
+    byId[a.id] = { ...byId[a.id], ...a };
+  });
+}
+
+// ---- Walk animation (transform-only; immune to status refreshes) ----
+let walkQueue = [];
+let walking = false;
+
+function roomCenter(id) {
+  const el = roomEls[id];
+  const b = board.getBoundingClientRect();
+  const r = el.getBoundingClientRect();
+  return { x: r.left - b.left + r.width / 2, y: r.top - b.top + r.height / 2 };
+}
+
+function placeWalkerAt(id) {
+  const c = roomCenter(id);
+  walker.style.transition = 'none';
+  walker.style.transform = `translate(${c.x}px, ${c.y}px)`;
+  // force reflow so the next transition applies
+  void walker.offsetWidth;
+  walker.style.transition = '';
+}
+
+function enqueueWalk(targetId) {
+  walkQueue.push(targetId);
+  if (!walking) nextWalk();
+}
+
+function nextWalk() {
+  if (!walkQueue.length) { walking = false; return; }
+  walking = true;
+  const targetId = walkQueue.shift();
+  const target = roomCenter(targetId);
+  walker.classList.add('walking');
+  walker.style.transform = `translate(${target.x}px, ${target.y}px)`;
+
+  const onArrive = () => {
+    walker.removeEventListener('transitionend', onArrive);
+    if (roomEls[targetId]) {
+      roomEls[targetId].classList.remove('receiving');
+      void roomEls[targetId].offsetWidth;
+      roomEls[targetId].classList.add('receiving');
+    }
+    setTimeout(() => {
+      // walk back home to General
+      const home = roomCenter('general');
+      walker.style.transform = `translate(${home.x}px, ${home.y}px)`;
+      const onHome = () => {
+        walker.removeEventListener('transitionend', onHome);
+        walker.classList.remove('walking');
+        setTimeout(nextWalk, 200);
+      };
+      walker.addEventListener('transitionend', onHome);
+    }, 900);
+  };
+  walker.addEventListener('transitionend', onArrive);
+}
+
+function handleDelegations(list) {
+  list.forEach(d => {
+    if (seenDelegations.has(d.id)) return;
+    seenDelegations.add(d.id);
+    if (roomEls[d.to]) enqueueWalk(d.to);
+  });
+}
+
+// ---- SSE ----
+function connectSSE() {
+  const es = new EventSource('api/agents/stream');
+  es.addEventListener('open', () => setConn(true));
+  es.addEventListener('error', () => setConn(false));
+  es.addEventListener('agents', e => applyAgents(JSON.parse(e.data).agents));
+  es.addEventListener('delegations', e => handleDelegations(JSON.parse(e.data).delegations));
+}
+
+function setConn(live) {
+  connEl.classList.toggle('live', live);
+  connText.textContent = live ? 'live' : 'reconnecting…';
+}
+
+// ---- Info modal ----
+const modalBack = document.getElementById('modalBack');
+const modal = document.getElementById('modal');
+function showInfo(id) {
+  const a = byId[id];
+  if (!a) return;
+  const last = a.lastActive ? new Date(a.lastActive * 1000).toLocaleString() : '—';
+  modal.innerHTML = `
+    <div class="head">
+      <span class="emoji">${a.emoji}</span>
+      <div><h2>${a.name}</h2><div class="st">${a.statusLabel || ''}</div></div>
+    </div>
+    <p>${a.description || ''}</p>
+    <div class="meta">Thread <b>${a.thread}</b> · status <b>${a.status || '—'}</b><br>Last active: ${last}</div>
+    <button class="close" onclick="hideInfo()">Close</button>`;
+  modalBack.classList.add('open');
+}
+function hideInfo() { modalBack.classList.remove('open'); }
+modalBack.addEventListener('click', e => { if (e.target === modalBack) hideInfo(); });
+
+// ---- color helper: shade a hex toward black(-)/white(+) ----
+function shade(hex, amt) {
+  if (!hex) return '#1d2230';
+  const n = parseInt(hex.slice(1), 16);
+  let r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+  const t = amt < 0 ? 0 : 255, p = Math.abs(amt);
+  r = Math.round((t - r) * p + r);
+  g = Math.round((t - g) * p + g);
+  b = Math.round((t - b) * p + b);
+  return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
+}
+
+boot();
+</script>
+</body>
+</html>

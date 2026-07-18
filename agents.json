@@ -1,0 +1,13 @@
+{
+  "agents": [
+    {"id": "memory",      "name": "Memory",      "thread": 6,   "emoji": "🧠", "col": 0, "row": 0, "color": "#b07cd6", "description": "Long-term memory / Notion logging."},
+    {"id": "finance",     "name": "Finance",     "thread": 5,   "emoji": "💰", "col": 1, "row": 0, "color": "#4caf7d", "description": "Budgets, spending, and money tracking."},
+    {"id": "health",      "name": "Health",      "thread": 119, "emoji": "💪", "col": 2, "row": 0, "color": "#e06c75", "description": "Health and fitness tracking."},
+    {"id": "predictions", "name": "Predictions", "thread": 7,   "emoji": "🔮", "col": 0, "row": 1, "color": "#7cc4d6", "description": "Forecasts and predictions."},
+    {"id": "general",     "name": "General",     "thread": 1,   "emoji": "⚙️", "col": 1, "row": 1, "color": "#5b6ee1", "alwaysOnline": true, "isHub": true, "description": "Coordinates the village and delegates to the other agents."},
+    {"id": "books",       "name": "Books",       "thread": 81,  "emoji": "📚", "col": 2, "row": 1, "color": "#d6795b", "description": "Book downloads and reading."},
+    {"id": "japanese",    "name": "Japanese",    "thread": 362, "emoji": "🗾", "col": 0, "row": 2, "color": "#d67ca6", "description": "Japanese study and quizzes."},
+    {"id": "reminders",   "name": "Reminders",   "thread": 2,   "emoji": "📋", "col": 1, "row": 2, "color": "#e0a458", "description": "Reminders and Todoist tasks."},
+    {"id": "coding",      "name": "Coding",      "thread": 1,   "emoji": "💻", "col": 2, "row": 2, "color": "#6c8ea6", "sharesThreadWithGeneral": true, "description": "Coding tasks and dev work."}
+  ]
+}
