@@ -16,7 +16,7 @@
     radial-gradient(120% 60% at 50% -5%,#241242 0%,transparent 60%),
     radial-gradient(130% 90% at 50% 100%,#1b0e33 0%,var(--bg0) 60%),var(--bg0);
     color:var(--ink);font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;-webkit-font-smoothing:none}
-  .wrap{max-width:520px;margin:0 auto;padding:12px 10px calc(64px + env(safe-area-inset-bottom))}
+  .wrap{max-width:520px;margin:0 auto;padding:12px 10px calc(118px + env(safe-area-inset-bottom))}
   header{display:flex;align-items:center;justify-content:center;position:relative;margin-bottom:10px}
   h1{font-size:19px;margin:0;letter-spacing:6px;color:var(--gold);font-weight:800;
     text-shadow:0 0 14px rgba(255,213,46,.65),2px 2px 0 #000}
@@ -40,15 +40,24 @@
     border:6px solid transparent;border-top-color:#f8f4ff;border-bottom:0}
   .bubble.show{opacity:1}
 
-  /* ---------- village feed dock ---------- */
-  .dock{position:fixed;left:0;right:0;bottom:0;z-index:20;max-width:520px;margin:0 auto;
-    background:rgba(13,8,26,.97);border-top:1px solid var(--pink);
-    box-shadow:0 -4px 26px rgba(233,53,193,.28);backdrop-filter:blur(6px);
-    padding-bottom:env(safe-area-inset-bottom)}
-  .dock .bar{display:flex;align-items:center;gap:10px;height:46px;padding:0 14px;cursor:pointer;user-select:none}
-  .dock .bar .t{font-size:11px;font-weight:800;letter-spacing:2px;color:var(--pink);text-shadow:0 0 9px rgba(233,53,193,.75)}
-  .dock .bar .last{flex:1;font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .dock .bar .chev{transition:transform .25s;color:var(--muted);font-size:12px}
+  /* ---------- village feed dock (floating pill) ---------- */
+  .dock{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(10px + env(safe-area-inset-bottom));
+    z-index:20;width:calc(100% - 20px);max-width:500px;
+    background:linear-gradient(180deg,rgba(26,16,46,.97),rgba(14,8,26,.97));
+    border:1px solid rgba(233,53,193,.55);border-radius:16px;overflow:hidden;
+    box-shadow:0 0 22px rgba(233,53,193,.30),0 8px 30px rgba(4,2,12,.7);backdrop-filter:blur(8px)}
+  .dock .bar{display:flex;align-items:center;gap:10px;height:50px;padding:0 15px;cursor:pointer;user-select:none;position:relative}
+  .dock .bar::before{content:"";position:absolute;top:0;left:12%;right:12%;height:1px;
+    background:linear-gradient(90deg,transparent,rgba(45,226,230,.6),transparent)}
+  .dock .bar .pulse{width:9px;height:9px;border-radius:50%;background:var(--pink);flex:none;
+    box-shadow:0 0 8px var(--pink);animation:dockpulse 2.2s ease-in-out infinite}
+  @keyframes dockpulse{0%,100%{opacity:.5;transform:scale(.85)}50%{opacity:1;transform:scale(1.15)}}
+  .dock .bar .t{font-size:11px;font-weight:800;letter-spacing:2px;color:var(--pink);text-shadow:0 0 9px rgba(233,53,193,.75);flex:none}
+  .dock .bar .last{flex:1;font-size:11px;color:#cfc8e8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+    -webkit-mask-image:linear-gradient(90deg,#000 82%,transparent)}
+  .dock .bar .chev{transition:transform .25s;color:var(--cyan);font-size:11px;flex:none;
+    width:24px;height:24px;border:1px solid rgba(45,226,230,.4);border-radius:50%;
+    display:flex;align-items:center;justify-content:center}
   .dock.open .bar .chev{transform:rotate(180deg)}
   .dock .body{height:0;overflow:hidden;transition:height .28s ease}
   .dock.open .body{height:44vh}
@@ -101,7 +110,8 @@
 
 <div class="dock" id="dock">
   <div class="bar" id="dockBar">
-    <span class="t">▮ VILLAGE FEED</span>
+    <span class="pulse"></span>
+    <span class="t">VILLAGE FEED</span>
     <span class="last" id="dockLast">no delegations yet</span>
     <span class="chev">▲</span>
   </div>
@@ -125,8 +135,20 @@ const bubble=document.getElementById('bubble');
 const connEl=document.getElementById('conn'), connText=document.getElementById('connText');
 
 let AGENTS=[], byId={}, rooms={};
-let W=0,H=0,dpr=1, floorH=0, shaftX=0, shaftW=0, roofH=34, groundH=20, slabH=12;
+let W=0,H=0,dpr=1, floorH=0, shaftX=0, shaftW=0, roofH=96, groundH=26, slabH=13;
 const FLOORS=5;
+/* Irregular floor plan: per-floor height multiplier + room widths (fractions).
+   STAIRX: x-fraction of the stairwell in the slab BELOW each floor — offset
+   per floor so General zigzags down through the building. */
+const LAYOUT=[
+  {f:5,hMul:1.14,rooms:[['general',1]]},
+  {f:4,hMul:0.96,rooms:[['finance',0.60],['memory',0.40]]},
+  {f:3,hMul:1.02,rooms:[['predictions',0.42],['reminders',0.58]]},
+  {f:2,hMul:0.96,rooms:[['books',0.58],['health',0.42]]},
+  {f:1,hMul:1.10,rooms:[['japanese',0.44],['coding',0.56]]},
+];
+const STAIRX={5:0.50,4:0.26,3:0.74,2:0.50};
+let FLOORS_GEO=[]; // computed: {f,top,h,feetY,stairAbsX,walls:[x,...]}
 const seenDeleg=new Set();
 const DOT_HEX={working:'#39ff88',active:'#39ff88',idle:'#ff9e3d',afk:'#4dc9ff',offline:'#4a4560'};
 
@@ -146,26 +168,33 @@ async function boot(){
 /* ============ layout ============ */
 function layout(){
   W=stage.clientWidth;
-  floorH=Math.max(150,Math.min(235,Math.round(W*0.45)));
-  H=roofH+FLOORS*floorH+groundH;
+  floorH=Math.max(140,Math.min(225,Math.round(W*0.42)));
+  const wall=6, innerX=6, innerW=W-12;
+  // accumulate floor tops from the roof down using per-floor multipliers
+  let y=roofH; FLOORS_GEO=[]; rooms={};
+  LAYOUT.forEach(spec=>{
+    const fh=Math.round(floorH*spec.hMul), h=fh-slabH, feetY=y+h-5;
+    const geo={f:spec.f,top:y,h,feetY,stairAbsX:(STAIRX[spec.f]!=null?STAIRX[spec.f]*W:null),walls:[]};
+    let cx=innerX;
+    spec.rooms.forEach(([id,frac],i)=>{
+      let w=Math.round(innerW*frac)-(i<spec.rooms.length-1?wall/2:0);
+      if(i>0){cx+=wall; w-=wall/2;}
+      rooms[id]={x:cx,y,w,h,feetY,cx:cx+w/2,floor:spec.f,
+        walkMin:cx+w*0.10,walkMax:cx+w*0.90};
+      cx+=w;
+      if(i<spec.rooms.length-1)geo.walls.push(cx);
+    });
+    FLOORS_GEO.push(geo);
+    y+=fh;
+  });
+  H=y+groundH;
   stage.style.height=H+'px';
   dpr=Math.min(window.devicePixelRatio||1,2);
   for(const c of [bg,fg]){c.width=W*dpr;c.height=H*dpr;}
   bctx.setTransform(dpr,0,0,dpr,0,0); fctx.setTransform(dpr,0,0,dpr,0,0);
-  // connected rooms: a thin shared wall in the center instead of a shaft
-  shaftW=6; shaftX=Math.round(W/2-shaftW/2);
-  rooms={};
-  AGENTS.forEach(a=>{
-    const top=roofH+(FLOORS-a.floor)*floorH, h=floorH-slabH;
-    let x,w;
-    if(a.slot==='full'){x=6;w=W-12;}
-    else if(a.slot==='left'){x=6;w=shaftX-6;}
-    else {x=shaftX+shaftW;w=W-6-x;}
-    const feetY=top+h-5;
-    rooms[a.id]={x,y:top,w,h,feetY,cx:x+w/2,walkMin:x+w*0.10,walkMax:x+w*0.90};
-  });
   drawBackground();
 }
+function floorGeo(f){return FLOORS_GEO.find(g=>g.f===f);}
 
 /* ============ paint helpers ============ */
 function R(ctx,x,y,w,h,c){ctx.fillStyle=c;ctx.fillRect(Math.round(x),Math.round(y),Math.ceil(w),Math.ceil(h));}
@@ -183,71 +212,118 @@ function litFactor(st){return st==='working'||st==='active'?1:st==='idle'?0.72:s
 /* ============ background: the building ============ */
 function drawBackground(){
   bctx.clearRect(0,0,W,H);
-  // distant stars
-  for(let i=0;i<46;i++){const sx=(i*97)%W,sy=(i*61)%H;R(bctx,sx,sy,1,1,'rgba(190,170,255,.16)');}
+  drawSky();
   // building body
   vgrad(bctx,5,roofH-4,W-10,H-roofH-groundH+8,'#160d28','#0e0819');
-  drawRoof(); drawShaft();
+  drawRoofDeco(); drawWalls();
   AGENTS.forEach(a=>drawRoom(a));
-  drawSlabs(); drawFrame(); drawGround();
+  drawSlabs(); drawFrame(); drawGround(); drawCables();
 }
 
-function drawRoof(){
+/* --- layered sky: gradient, stars, moon, two parallax city silhouettes --- */
+function drawSky(){
+  vgrad(bctx,0,0,W,roofH+30,'#0b0620','#1d1038');
+  for(let i=0;i<70;i++){const sx=(i*89)%W,sy=(i*53)%(roofH-8);
+    R(bctx,sx,sy,i%9===0?1.6:1,i%9===0?1.6:1,`rgba(200,185,255,${0.10+(i%5)*0.05})`);}
+  // moon with glow
+  bctx.save();bctx.shadowColor='#cfd6ff';bctx.shadowBlur=18;
+  bctx.fillStyle='#e8ecff';bctx.beginPath();bctx.arc(W*0.82,26,11,0,7);bctx.fill();bctx.restore();
+  bctx.fillStyle='#1d1038';bctx.beginPath();bctx.arc(W*0.82+5,22,9,0,7);bctx.fill();
+  // far city (darkest, small)
+  bctx.fillStyle='#150c28';
+  for(let i=0;i<14;i++){const bw2=14+(i*37)%22, bx=(i*67)%W, bh2=18+(i*29)%26;
+    bctx.fillRect(bx,roofH-8-bh2,bw2,bh2+8);}
+  // near city (lighter, taller, lit windows + antenna dots)
+  for(let i=0;i<8;i++){
+    const bw2=26+(i*53)%30, bx=(i*111+30)%W, bh2=34+(i*41)%34;
+    vgrad(bctx,bx,roofH-4-bh2,bw2,bh2+4,'#221439','#180f2c');
+    for(let wy2=roofH-bh2+2;wy2<roofH-6;wy2+=7)
+      for(let wx2=bx+3;wx2<bx+bw2-3;wx2+=8)
+        if(hash2(wx2,wy2)<0.28)R(bctx,wx2,wy2,2.5,3,hash2(wy2,wx2)<0.5?'rgba(255,213,46,.5)':'rgba(45,226,230,.45)');
+    if(i%3===0){R(bctx,bx+bw2/2,roofH-10-bh2,1.5,7,'#2b1c47');R(bctx,bx+bw2/2-0.5,roofH-11-bh2,2.5,2.5,'rgba(255,77,109,.8)');}
+  }
+  // haze line where city meets roof
+  vgrad(bctx,0,roofH-14,W,14,'rgba(176,38,255,0)','rgba(176,38,255,.14)');
+}
+function hash2(i,j){let h=(i*374761393+j*668265263)^(i<<7);h=(h^(h>>13))*1274126177;return ((h^(h>>16))>>>0)/4294967295;}
+
+function drawRoofDeco(){
   R(bctx,5,roofH-8,W-10,6,'#241638'); R(bctx,5,roofH-8,W-10,1,'#b026ff');
   bctx.save();bctx.shadowColor='#b026ff';bctx.shadowBlur=6;R(bctx,5,roofH-8,W-10,1,'#d06bff');bctx.restore();
-  // water tank
-  R(bctx,W*0.12,roofH-26,26,18,'#1c1330');R(bctx,W*0.12-3,roofH-26,32,3,'#2b1c47');
-  R(bctx,W*0.12+4,roofH-8,3,2,'#2b1c47');R(bctx,W*0.12+19,roofH-8,3,2,'#2b1c47');
-  // antennas
-  R(bctx,W*0.68,roofH-30,2,22,'#4a3a6a');R(bctx,W*0.68-4,roofH-31,10,2,'#4a3a6a');
-  R(bctx,W*0.86,roofH-20,2,14,'#4a3a6a');
-  // AC units
-  R(bctx,W*0.42,roofH-14,18,6,'#1e1433');R(bctx,W*0.44,roofH-12,3,3,'#2de2e6');
+  R(bctx,W*0.10,roofH-26,26,18,'#1c1330');R(bctx,W*0.10-3,roofH-26,32,3,'#2b1c47'); // water tank
+  R(bctx,W*0.10+4,roofH-8,3,2,'#2b1c47');R(bctx,W*0.10+19,roofH-8,3,2,'#2b1c47');
+  R(bctx,W*0.66,roofH-32,2,24,'#4a3a6a');R(bctx,W*0.66-4,roofH-33,10,2,'#4a3a6a'); // antennas
+  R(bctx,W*0.88,roofH-20,2,14,'#4a3a6a');
+  R(bctx,W*0.40,roofH-14,18,6,'#1e1433');R(bctx,W*0.42,roofH-12,3,3,'#2de2e6');   // AC
+  // rooftop holo billboard
+  const bbx=W*0.24,bby=roofH-30;
+  R(bctx,bbx,bby,44,16,'rgba(45,226,230,.10)');
+  bctx.save();bctx.shadowColor='#2de2e6';bctx.shadowBlur=8;
+  bctx.strokeStyle='rgba(45,226,230,.6)';bctx.lineWidth=1;bctx.strokeRect(bbx,bby,44,16);bctx.restore();
+  neonText(bctx,'AGENT',bbx+22,bby+5.5,7,'#2de2e6',6);
+  neonText(bctx,'VILLAGE',bbx+22,bby+12.5,6,'#e935c1',6);
+  R(bctx,bbx+6,bby+16,2,6,'#2b1c47');R(bctx,bbx+36,bby+16,2,6,'#2b1c47');
 }
 
-function drawShaft(){
-  // shared center wall on split floors (1-4), with a neon-framed door opening
-  for(let f=1;f<FLOORS;f++){
-    const top=roofH+(FLOORS-f)*floorH, h=floorH-slabH;
-    vgrad(bctx,shaftX,top,shaftW,h,'#221838','#150e26');
-    R(bctx,shaftX,top,1,h,'#0a0614');R(bctx,shaftX+shaftW-1,top,1,h,'#0a0614');
-    // door opening at walk level
-    const dh=h*0.34, dy=top+h-dh;
-    R(bctx,shaftX-1,dy,shaftW+2,dh,'#07040f');
-    bctx.save();bctx.shadowColor='#2de2e6';bctx.shadowBlur=6;
-    R(bctx,shaftX-1,dy,shaftW+2,1.5,'#2de2e6');
-    R(bctx,shaftX-1,dy,1.5,dh,'#2de2e6');R(bctx,shaftX+shaftW-0.5,dy,1.5,dh,'#2de2e6');
-    bctx.restore();
+/* sagging power cables between rooftop masts (blink lights live in fg) */
+let CABLE_PTS=[];
+function drawCables(){
+  CABLE_PTS=[];
+  const runs=[[W*0.10+13,roofH-26,W*0.66,roofH-30],[W*0.66,roofH-30,W*0.88,roofH-18]];
+  bctx.strokeStyle='rgba(150,130,200,.4)';bctx.lineWidth=1;
+  for(const[ax,ay,bx2,by2] of runs){
+    bctx.beginPath();bctx.moveTo(ax,ay);
+    const mx=(ax+bx2)/2, my=Math.max(ay,by2)+9;
+    bctx.quadraticCurveTo(mx,my,bx2,by2);bctx.stroke();
+    CABLE_PTS.push([mx,my-2],[(ax+mx)/2,(ay+my)/2+1]);
   }
 }
 
+/* shared walls between rooms on each floor, with neon-framed door openings */
+function drawWalls(){
+  FLOORS_GEO.forEach(g=>{
+    g.walls.forEach(wx=>{
+      vgrad(bctx,wx-3,g.top,6,g.h,'#221838','#150e26');
+      R(bctx,wx-3,g.top,1,g.h,'#0a0614');R(bctx,wx+2,g.top,1,g.h,'#0a0614');
+      const dh=g.h*0.34, dy=g.top+g.h-dh;
+      R(bctx,wx-4,dy,8,dh,'#07040f');
+      bctx.save();bctx.shadowColor='#2de2e6';bctx.shadowBlur=6;
+      R(bctx,wx-4,dy,8,1.5,'#2de2e6');
+      R(bctx,wx-4,dy,1.5,dh,'#2de2e6');R(bctx,wx+2.5,dy,1.5,dh,'#2de2e6');
+      bctx.restore();
+    });
+  });
+}
+
 function drawSlabs(){
-  const gapW=46, gx=W/2-gapW/2;
-  for(let f=1;f<=FLOORS;f++){
-    const y=roofH+f*floorH-slabH;
-    const isBottom=(f===FLOORS);
-    // two slab segments with a stairwell gap in the middle (except ground slab)
-    const segs=isBottom?[[5,W-10]]:[[5,gx-5],[gx+gapW,W-(gx+gapW)-5]];
+  const gapW=48;
+  FLOORS_GEO.forEach((g,gi)=>{
+    const y=g.top+g.h;               // slab under this floor
+    const isBottom=(gi===FLOORS_GEO.length-1);
+    const sx0=g.stairAbsX, gx=sx0!=null?sx0-gapW/2:null;
+    const segs=(isBottom||gx==null)?[[5,W-10]]:[[5,gx-5],[gx+gapW,W-(gx+gapW)-5]];
     for(const[sx2,sw2] of segs){
+      if(sw2<=0)continue;
       vgrad(bctx,sx2,y,sw2,slabH,'#261741','#1a1030');
       R(bctx,sx2,y,sw2,1.5,'#e935c1');
       bctx.save();bctx.shadowColor='#e935c1';bctx.shadowBlur=8;R(bctx,sx2,y,sw2,1.5,'#ff5fd8');bctx.restore();
       R(bctx,sx2,y+slabH-1,sw2,1,'rgba(0,0,0,.5)');
       for(let x=sx2+13;x<sx2+sw2-14;x+=44){R(bctx,x,y+4,10,4,'#130c22');R(bctx,x+1,y+5,8,1,'#2b1c47');}
     }
-    if(!isBottom){
-      // stairwell opening: dark well + glowing steps
+    if(!isBottom&&gx!=null){
+      // stairwell opening with glowing steps
       vgrad(bctx,gx,y-3,gapW,slabH+6,'#0b0716','#120c22');
-      const steps=4;
-      for(let i=0;i<steps;i++){
-        const stw=gapW*(1-i*0.16), stx=W/2-stw/2, sty=y-2+i*(slabH+4)/steps;
+      for(let i=0;i<4;i++){
+        const stw=gapW*(1-i*0.16), stx=sx0-stw/2, sty=y-2+i*(slabH+4)/4;
         R(bctx,stx,sty,stw,2,'#2b1c47');
         R(bctx,stx,sty,stw,1,'rgba(45,226,230,.5)');
       }
       R(bctx,gx,y-3,1.5,slabH+6,'rgba(45,226,230,.3)');
       R(bctx,gx+gapW-1.5,y-3,1.5,slabH+6,'rgba(45,226,230,.3)');
+      // hazard chevrons on the opening edge
+      for(let cx2=gx+4;cx2<gx+gapW-6;cx2+=9)R(bctx,cx2,y+slabH-3,4,2,'rgba(255,213,46,.35)');
     }
-  }
+  });
 }
 
 function drawFrame(){
@@ -558,7 +634,26 @@ function drawAmbient(t){
   });
   // roof beacon
   if(Math.sin(t*2.6)>0.3){fctx.save();fctx.shadowColor='#ff4d6d';fctx.shadowBlur=8;
-    R(fctx,W*0.68,roofH-31,3,3,'#ff4d6d');fctx.restore();}
+    R(fctx,W*0.66,roofH-33,3,3,'#ff4d6d');fctx.restore();}
+  // blinking cable lights
+  CABLE_PTS.forEach((p,i)=>{
+    if(Math.sin(t*2+i*2.4)>0.4){fctx.fillStyle=i%2?'rgba(255,77,109,.85)':'rgba(45,226,230,.85)';
+      fctx.fillRect(p[0]-1,p[1]-1,2.5,2.5);}
+  });
+  // drifting dust motes through the building interior
+  for(let i=0;i<16;i++){
+    const mx=(hash2(i,5)*W+Math.sin(t*0.22+i*1.7)*26+t*3.4*(1+(i%3)*0.4))%W;
+    const my=roofH+((hash2(i,11)*(H-roofH-groundH))+Math.cos(t*0.18+i)*14+H)%(H-roofH-groundH);
+    const al=0.05+0.07*Math.max(0,Math.sin(t*0.8+i*2.2));
+    fctx.fillStyle=`rgba(200,190,255,${al})`;fctx.fillRect(mx,my,1.6,1.6);
+  }
+  // stairwell glow pulses
+  FLOORS_GEO.forEach((g,gi)=>{
+    if(gi===FLOORS_GEO.length-1||g.stairAbsX==null)return;
+    const y=g.top+g.h;
+    fctx.fillStyle=`rgba(45,226,230,${0.05+0.04*Math.sin(t*2.4+gi*1.8)})`;
+    fctx.beginPath();fctx.arc(g.stairAbsX,y+slabH/2,20,0,7);fctx.fill();
+  });
 }
 
 /* ============ actors ============ */
@@ -639,10 +734,26 @@ function stepActor(a,o,dt){
   if(Math.abs(o.targetX-o.x)<2){o.targetX=null;o.pauseT=1+Math.random()*(4-2.5*activity);}
 }
 
+/* route through successive per-floor stairwells (zigzag descent/ascent) */
+function routeFloors(fromF,toF,targetX){
+  const pts=[];
+  let f=fromF;
+  while(f>toF){ // descend: stairs live in the slab below floor f
+    const g=floorGeo(f), below=floorGeo(f-1);
+    pts.push({x:g.stairAbsX,y:g.feetY},{x:g.stairAbsX,y:below.feetY});
+    f--;
+  }
+  while(f<toF){ // ascend: stairs of the floor above
+    const above=floorGeo(f+1);
+    pts.push({x:above.stairAbsX,y:floorGeo(f).feetY},{x:above.stairAbsX,y:above.feetY});
+    f++;
+  }
+  pts.push({x:targetX,y:floorGeo(toF).feetY});
+  return pts;
+}
 function planWalk(ev){
   const tr=rooms[ev.to]; if(!tr)return false;
-  const gr=rooms.general, sx=shaftX+shaftW/2;
-  walker.path=[{x:sx,y:gr.feetY},{x:sx,y:tr.feetY},{x:tr.cx,y:tr.feetY}];
+  walker.path=routeFloors(rooms.general.floor,tr.floor,tr.cx);
   walker.seg=0;walker.state='out';walker.task=ev;
   return true;
 }
@@ -658,8 +769,8 @@ function stepWalker(dt){
   if(walker.state==='visit'){
     walker.t-=dt;
     if(walker.t<=0){
-      const gr=rooms.general,sx=shaftX+shaftW/2;
-      walker.path=[{x:sx,y:walker.y},{x:sx,y:gr.feetY},{x:rooms.general.cx,y:gr.feetY}];
+      const tr=rooms[walker.task.to];
+      walker.path=routeFloors(tr.floor,rooms.general.floor,rooms.general.cx);
       walker.seg=0;walker.state='back';
     }
     return;
