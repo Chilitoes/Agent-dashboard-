@@ -41,10 +41,10 @@ STATE_DB_PATH = Path(os.environ.get("HERMES_STATE_DB", HERMES_DIR / "state.db"))
 
 GENERAL_THREAD = 1
 
-# Thresholds (seconds) for translating "last activity" into a status label.
-ACTIVE_WINDOW = 5 * 60          # < 5m  -> active
-IDLE_WINDOW = 30 * 60           # < 30m -> idle
-AFK_WINDOW = 6 * 60 * 60        # < 6h  -> afk ; older -> offline
+# Thresholds (seconds). An agent is "working" only for WORKING_WINDOW after its
+# last real activity; after that it goes idle (with a duration shown).
+WORKING_WINDOW = 3 * 60         # <= 3m since last activity -> working
+DORMANT_WINDOW = 12 * 3600      # older than this (or never) -> offline/dormant
 
 
 # --------------------------------------------------------------------------
@@ -200,26 +200,42 @@ def _open_sessions_by_thread(con: sqlite3.Connection, threads: set[int]) -> set[
     return out
 
 
+def _fmt_ago(sec: float) -> str:
+    sec = int(sec)
+    if sec < 60:
+        return f"{sec}s ago"
+    if sec < 3600:
+        return f"{sec // 60}m ago"
+    if sec < 86400:
+        return f"{sec // 3600}h ago"
+    return f"{sec // 86400}d ago"
+
+
 def _status(age: float | None, working: bool, has_open: bool, always_online: bool):
-    if working:
-        return "working", "Active now"
-    if age is not None and age < ACTIVE_WINDOW:
-        return "active", "Active now"
-    if has_open and (age is None or age < IDLE_WINDOW):
-        return "working", "In session"
-    if age is None:
-        return ("active", "Online") if always_online else ("offline", "Offline")
-    if age < IDLE_WINDOW:
-        return "idle", f"Last active {int(age // 60)}m ago"
-    if age < AFK_WINDOW:
-        return "afk", f"AFK {int(age // 3600)}h ago"
+    """Returns (status, statusLabel). Working only for a short window after the
+    last activity; otherwise idle (with how long) — never permanently 'online'
+    unless it's the always-online hub (General)."""
+    # Note: an open (ended_at NULL) session alone does NOT count as working —
+    # Hermes leaves sessions open long after work stops, which would keep every
+    # agent perpetually "online". Only genuinely-recent activity counts.
+    if working or (age is not None and age <= WORKING_WINDOW):
+        return "working", "Working"
     if always_online:
-        return "active", "Online"
-    return "offline", "Offline"
+        return "active", "On standby"
+    if age is None or age > DORMANT_WINDOW:
+        return "offline", "Idle"
+    return "idle", f"Idle · {_fmt_ago(age)}"
 
 
 def get_agents() -> list[dict]:
-    """The 9 agents with live status merged onto their static config."""
+    """The 9 agents with live status merged onto their static config.
+
+    Activity source per agent:
+      * normal agents  -> their own thread's last message + delegations to them
+      * shared-thread agents (Coding shares General's t1) -> ONLY delegations to
+        them, so idle General chatter never keeps them lit
+      * General (always-online hub) -> its thread activity, but never 'offline'
+    """
     threads = {a["thread"] for a in AGENTS}
     now = time.time()
 
@@ -235,19 +251,36 @@ def get_agents() -> list[dict]:
 
     running_cron = _running_cron_threads(read_cron_jobs())
 
+    # most recent delegation per target agent -> (ts, reason)
+    deleg_last: dict[str, tuple[float, str]] = {}
+    for d in get_delegations(limit=60):
+        cur = deleg_last.get(d["to"])
+        if cur is None or d["ts"] > cur[0]:
+            deleg_last[d["to"]] = (d["ts"], d.get("reason", ""))
+
     result = []
     for a in AGENTS:
         th = a["thread"]
-        last_t = last_act.get(th)
+        shared = a.get("sharesThreadWithGeneral", False)
+        base = None if shared else last_act.get(th)
+        dl = deleg_last.get(a["id"])
+        dl_ts = dl[0] if dl else None
+        candidates = [t for t in (base, dl_ts) if t is not None]
+        last_t = max(candidates) if candidates else None
         age = (now - last_t) if last_t else None
-        working = th in running_cron
-        has_open = th in open_threads
+        working = (th in running_cron) and not shared
+        has_open = (th in open_threads) and not shared
         status, label = _status(age, working, has_open, a.get("alwaysOnline", False))
+        # what the agent is currently on (drives room sheet + reply context)
+        current_task = ""
+        if dl and (status == "working" or (age is not None and age < DORMANT_WINDOW)):
+            current_task = dl[1]
         result.append({
             **a,
             "status": status,
             "statusLabel": label,
             "lastActive": last_t,
+            "currentTask": current_task,
         })
     return result
 
