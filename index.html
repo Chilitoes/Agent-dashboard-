@@ -16,7 +16,7 @@
     radial-gradient(120% 60% at 50% -5%,#1c0f38 0%,transparent 60%),
     radial-gradient(130% 90% at 50% 100%,#140b28 0%,var(--bg0) 60%),var(--bg0);
     color:var(--ink);font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;-webkit-font-smoothing:none}
-  .wrap{max-width:520px;margin:0 auto;padding:12px 10px calc(118px + env(safe-area-inset-bottom))}
+  .wrap{max-width:520px;margin:0 auto;padding:10px 10px 8px;height:100vh;overflow:hidden}
   header{display:flex;align-items:center;justify-content:center;position:relative;margin-bottom:10px}
   h1{font-size:19px;margin:0;letter-spacing:6px;color:var(--gold);font-weight:800;
     text-shadow:0 0 14px rgba(255,213,46,.65),2px 2px 0 #000}
@@ -182,26 +182,35 @@ async function boot(){
   requestAnimationFrame(loop);
 }
 
-/* ============ layout: packed bento floor plan ============ */
+/* ============ layout: packed bento floor plan (fits the viewport) ============ */
 let HULLX=0, HULLW=0, HULLY=0;
 function layout(){
   W=stage.clientWidth;
-  HULLX=5; HULLW=W-10; HULLY=Math.round(W*0.055);
+  // fit the whole station between the header and the feed dock — no scrolling
+  const stageTop=stage.getBoundingClientRect().top;
+  const dockH=(document.getElementById('dock')||{}).offsetHeight||56;
+  const vh=window.innerHeight||800;
+  const avail=Math.max(360, vh - stageTop - dockH - 20);
+  const margin=Math.round(avail*0.022);
+  HULLX=5; HULLW=W-10; HULLY=margin;
+  const bandsTotal=avail-2*margin;
+  const hfSum=BANDS.reduce((a,b)=>a+b.hf,0);
   rooms={};
-  let y=HULLY;
-  BANDS.forEach(band=>{
-    const bh=Math.round(W*band.hf);
+  let y=HULLY, used=0;
+  BANDS.forEach((band,bi)=>{
+    const last=(bi===BANDS.length-1);
+    const bh=last ? (HULLY+bandsTotal-y) : Math.round(bandsTotal*band.hf/hfSum);
     let x=HULLX;
     band.cols.forEach(([id,wf],i)=>{
-      const last=(i===band.cols.length-1);
-      const w=last ? (HULLX+HULLW-x) : Math.round(HULLW*wf);
-      rooms[id]={x,y,w,h:bh,feetY:y+bh-8,cx:x+w/2,
+      const lastCol=(i===band.cols.length-1);
+      const w=lastCol ? (HULLX+HULLW-x) : Math.round(HULLW*wf);
+      rooms[id]={x,y,w,h:bh,feetY:y+bh-7,cx:x+w/2,
         walkMin:x+w*0.13,walkMax:x+w*0.87,amb:{}};
       x+=w;
     });
     y+=bh;
   });
-  H=Math.round(y+W*0.055);
+  H=Math.round(y+margin);
   stage.style.height=H+'px';
   dpr=Math.min(window.devicePixelRatio||1,2);
   for(const c of [bg,fg]){c.width=W*dpr;c.height=H*dpr;}
