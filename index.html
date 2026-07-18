@@ -116,6 +116,7 @@ async function boot(){
   AGENTS=cfg?cfg.agents:[]; byId=Object.fromEntries(AGENTS.map(a=>[a.id,a]));
   buildLabels();
   try{const d=await fetch('api/agents').then(r=>r.json()); applyAgents(d.agents);}catch(e){}
+  await seedTicker();
   resize(); window.addEventListener('resize',resize);
   requestAnimationFrame(loop);
   connectSSE();
@@ -266,9 +267,18 @@ function applyAgents(agents){ agents.forEach(a=>{ byId[a.id]={...byId[a.id],...a
   drawBackground(); }
 
 // ---------- delegations / ticker ----------
+// Seed the ticker with recent history WITHOUT animating (page just loaded).
+async function seedTicker(){
+  try{
+    const d=await fetch('api/delegations').then(r=>r.json());
+    (d.delegations||[]).forEach(ev=>{ seenDeleg.add(ev.id); tickerEvents.unshift(ev); });
+    tickerEvents.splice(40); renderTicker();
+  }catch(e){}
+}
+// Live SSE delegations: animate + add to ticker.
 function handleDelegations(list){ let added=false;
   list.forEach(d=>{ if(seenDeleg.has(d.id))return; seenDeleg.add(d.id); enqueueWalk(d); tickerEvents.unshift(d); added=true; });
-  if(added){ tickerEvents.splice(30); renderTicker(); }
+  if(added){ tickerEvents.splice(40); renderTicker(); }
 }
 function renderTicker(){
   if(!tickerEvents.length){tickerEl.className='ticker empty';tickerEl.textContent='waiting for delegations…';return;}

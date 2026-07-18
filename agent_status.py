@@ -61,6 +61,30 @@ THREAD_TO_AGENT: dict[int, str] = {
     for a in AGENTS
     if a["thread"] != GENERAL_THREAD
 }
+AGENT_IDS = {a["id"] for a in AGENTS}
+
+# Delegation detection toggles (env):
+#   DELEGATION_FALLBACK=off   -> disable the keyword heuristic on user text
+DELEG_KEYWORD_FALLBACK = os.environ.get("DELEGATION_FALLBACK", "keywords").lower() != "off"
+
+# How many recent thread-1 messages to scan for markers / keywords.
+DELEG_SCAN_LIMIT = int(os.environ.get("DELEGATION_SCAN_LIMIT", "200"))
+
+# Marker General can emit in his inline reply:  [[delegate: reminders | task text]]
+import re
+DELEG_MARKER = re.compile(r"\[\[\s*delegate\s*:\s*([a-z_]+)\s*(?:\|\s*(.*?))?\s*\]\]", re.I)
+
+# Keyword fallback: substrings in a General(thread-1) USER message -> target agent id.
+DELEGATION_KEYWORDS: dict[str, list[str]] = {
+    "reminders":   ["remind", "reminder"],
+    "finance":     ["budget", "spending", "expense"],
+    "memory":      ["log to notion", "save to notion", "remember this", "log to"],
+    "predictions": ["predict", "forecast"],
+    "books":       ["download book", "download a book", "get the book", "ebook"],
+    "health":      ["track health", "log workout", "log my run", "track my run"],
+    "japanese":    ["japanese quiz", "quiz me", "japanese practice"],
+    "coding":      ["coding task", "code this", "write a script"],
+}
 
 
 # --------------------------------------------------------------------------
@@ -229,54 +253,113 @@ def get_agents() -> list[dict]:
 
 
 # --------------------------------------------------------------------------
-# Delegation detection — structural (child sessions under General)
+# Delegation detection — layered
+#   1. structural: child sessions spawned under General's thread
+#   2. markers:    [[delegate: agent | task]] in General's inline replies
+#   3. keywords:   heuristic on General-thread user messages (fallback)
+# The first signals are precise; the keyword fallback keeps the ticker alive
+# before General starts emitting markers. Events are merged + de-duplicated.
 # --------------------------------------------------------------------------
-def get_delegations(limit: int = 20, since: float | None = None) -> list[dict]:
-    """A delegation = a session whose parent lives on General's thread and whose
-    own thread belongs to another agent. Returns:
-      {id, from:'general', to:<agent id>, thread, ts}
-    """
-    con = _connect()
-    if con is None:
-        return []
-    events: list[dict] = []
+def _mk(evid, target, reason, ts, source):
+    return {"id": evid, "from": "general", "to": target,
+            "thread": next((a["thread"] for a in AGENTS if a["id"] == target), None),
+            "reason": (reason or "").strip()[:200], "ts": ts, "source": source}
+
+
+def _deleg_from_sessions(con) -> list[dict]:
+    out = []
     try:
         target_threads = list(THREAD_TO_AGENT)
         ph = ",".join("?" for _ in target_threads)
         q = (
-            "SELECT child.id AS child_id, child.thread_id AS thread, "
+            "SELECT child.id AS cid, child.thread_id AS thread, "
             "       child.started_at AS started, child.title AS title "
-            "FROM sessions child "
-            "JOIN sessions parent ON child.parent_session_id = parent.id "
+            "FROM sessions child JOIN sessions parent "
+            "  ON child.parent_session_id = parent.id "
             f"WHERE parent.thread_id = ? AND child.thread_id IN ({ph}) "
-            "ORDER BY child.started_at DESC LIMIT ?"
+            "ORDER BY child.started_at DESC LIMIT 60"
         )
-        rows = con.execute(q, (GENERAL_THREAD, *target_threads, max(limit * 2, 40))).fetchall()
+        for r in con.execute(q, (GENERAL_THREAD, *target_threads)).fetchall():
+            target = THREAD_TO_AGENT.get(int(r["thread"]))
+            if target:
+                out.append(_mk(f"sess-{r['cid']}", target, r["title"],
+                               _to_epoch(r["started"]), "session"))
+    except sqlite3.Error:
+        pass
+    return out
+
+
+def _scan_thread1_messages(con):
+    """Recent General-thread messages, newest first."""
+    try:
+        q = (
+            "SELECT m.id AS mid, m.role AS role, m.content AS content, "
+            "       m.timestamp AS ts "
+            "FROM messages m JOIN sessions s ON m.session_id = s.id "
+            "WHERE s.thread_id = ? "
+            "ORDER BY m.timestamp DESC LIMIT ?"
+        )
+        return con.execute(q, (GENERAL_THREAD, DELEG_SCAN_LIMIT)).fetchall()
     except sqlite3.Error:
         return []
+
+
+def _deleg_from_markers(rows) -> list[dict]:
+    out = []
+    for r in rows:
+        role = str(r["role"]).lower()
+        if role not in ("assistant", "ai", "model", "bot", "out", "outbound"):
+            continue
+        content = r["content"] or ""
+        for m in DELEG_MARKER.finditer(str(content)):
+            target = m.group(1).lower()
+            if target in AGENT_IDS and target != "general":
+                out.append(_mk(f"mark-{r['mid']}-{target}", target,
+                               m.group(2) or "", _to_epoch(r["ts"]), "marker"))
+    return out
+
+
+def _deleg_from_keywords(rows) -> list[dict]:
+    out = []
+    for r in rows:
+        role = str(r["role"]).lower()
+        if role not in ("user", "human", "me", "in", "inbound"):
+            continue
+        low = str(r["content"] or "").lower()
+        for target, kws in DELEGATION_KEYWORDS.items():
+            if any(k in low for k in kws):
+                out.append(_mk(f"kw-{r['mid']}-{target}", target,
+                               str(r["content"])[:200], _to_epoch(r["ts"]), "keyword"))
+                break
+    return out
+
+
+def get_delegations(limit: int = 20, since: float | None = None) -> list[dict]:
+    """Merge all delegation signals into a chronological, de-duplicated list:
+    {id, from:'general', to:<agent id>, thread, reason, ts, source}."""
+    con = _connect()
+    if con is None:
+        return []
+    try:
+        events = _deleg_from_sessions(con)
+        rows = _scan_thread1_messages(con)
+        events += _deleg_from_markers(rows)
+        if DELEG_KEYWORD_FALLBACK:
+            events += _deleg_from_keywords(rows)
     finally:
         con.close()
 
-    for row in rows:
-        target = THREAD_TO_AGENT.get(int(row["thread"]))
-        if not target:
+    # de-dupe by id, keep the highest-precision source per (target, ~timestamp)
+    seen = set()
+    uniq = []
+    for e in sorted(events, key=lambda e: e["ts"]):
+        if e["id"] in seen:
             continue
-        ts = _to_epoch(row["started"])
-        if since is not None and ts <= since:
+        seen.add(e["id"])
+        if since is not None and e["ts"] <= since:
             continue
-        reason = (row["title"] or "").strip() if "title" in row.keys() else ""
-        events.append({
-            "id": f"deleg-{row['child_id']}",
-            "from": "general",
-            "to": target,
-            "thread": int(row["thread"]),
-            "reason": reason,
-            "ts": ts,
-        })
-        if len(events) >= limit:
-            break
-    events.sort(key=lambda e: e["ts"])
-    return events
+        uniq.append(e)
+    return uniq[-limit:]
 
 
 def get_watermark() -> str:

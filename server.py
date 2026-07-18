@@ -72,7 +72,11 @@ async def api_diagnostics() -> JSONResponse:
 async def api_stream(request: Request) -> StreamingResponse:
     async def event_gen():
         last_watermark = None
-        last_delegation_ts = 0.0
+        # Seed to the newest existing delegation so a fresh connection only
+        # ANIMATES delegations that happen from now on — history is not replayed
+        # as a flood of walks. (The ticker seeds its history from /api/delegations.)
+        existing = await asyncio.to_thread(agent_status.get_delegations, 1)
+        last_delegation_ts = existing[-1]["ts"] if existing else 0.0
         last_push = 0.0
 
         while True:
