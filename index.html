@@ -2,321 +2,303 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <title>Agent Village</title>
 <style>
-  :root {
-    --bg: #0e1016;
-    --panel: #161a24;
-    --panel-2: #1d2230;
-    --ink: #e7ecf5;
-    --muted: #8b93a7;
-    --line: #2a3040;
-    --dot-working: #3fd07a;
-    --dot-active: #3fd07a;
-    --dot-idle: #e0a458;
-    --dot-afk: #5b8dd6;
-    --dot-offline: #6b7280;
-    --shadow: 0 8px 30px rgba(0,0,0,.35);
+  :root{
+    --bg:#0b0d12; --ink:#e7ecf5; --muted:#8b93a7; --line:#2a3040;
+    --panel:#161a24; --panel2:#1d2230;
+    --dot-active:#3fd07a; --dot-idle:#e0a458; --dot-afk:#5b8dd6; --dot-offline:#6b7280;
   }
-  * { box-sizing: border-box; }
-  html, body {
-    margin: 0; height: 100%;
-    background: radial-gradient(1200px 800px at 50% -10%, #1a2030, var(--bg));
-    color: var(--ink);
-    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  }
-  .wrap {
-    max-width: 820px; margin: 0 auto; padding: 24px 16px 40px;
-    display: flex; flex-direction: column; min-height: 100%;
-  }
-  header {
-    display: flex; align-items: center; justify-content: space-between;
-    gap: 12px; margin-bottom: 18px; flex-wrap: wrap;
-  }
-  h1 { font-size: 20px; margin: 0; letter-spacing: .3px; }
-  h1 .sub { color: var(--muted); font-weight: 500; font-size: 13px; margin-left: 8px; }
-  .conn { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
-  .conn .led { width: 8px; height: 8px; border-radius: 50%; background: var(--dot-offline); }
-  .conn.live .led { background: var(--dot-working); box-shadow: 0 0 8px var(--dot-working); }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);
+    font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;-webkit-font-smoothing:none;}
+  .wrap{max-width:640px;margin:0 auto;padding:14px 10px 0;display:flex;flex-direction:column;min-height:100%}
+  header{display:flex;align-items:center;justify-content:center;position:relative;margin-bottom:12px}
+  h1{font-size:20px;margin:0;letter-spacing:5px;color:#f2c14e;text-shadow:2px 2px 0 #000;font-weight:800}
+  .conn{position:absolute;right:4px;top:50%;transform:translateY(-50%);display:flex;align-items:center;gap:6px;font-size:10px;color:var(--muted)}
+  .conn .led{width:8px;height:8px;border-radius:50%;background:var(--dot-offline)}
+  .conn.live .led{background:var(--dot-active);box-shadow:0 0 8px var(--dot-active)}
 
-  /* Board */
-  .board {
-    position: relative;
-    width: 100%; aspect-ratio: 1 / 1;
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    grid-template-rows: repeat(3, 1fr);
-    gap: 10px;
-  }
-  .room {
-    position: relative;
-    border-radius: 14px;
-    border: 1px solid var(--line);
-    background: var(--room-color, var(--panel));
-    display: flex; flex-direction: column;
-    align-items: center; justify-content: center;
-    padding: 8px; cursor: pointer; overflow: hidden;
-    transition: transform .15s ease, box-shadow .25s ease, border-color .25s ease;
-  }
-  .room:hover { transform: translateY(-2px); border-color: #3a445e; }
-  .room .emoji { font-size: clamp(26px, 7vw, 44px); line-height: 1; filter: drop-shadow(0 2px 4px rgba(0,0,0,.4)); }
-  .room .name { margin-top: 6px; font-size: clamp(10px, 2.4vw, 13px); font-weight: 600; }
-  .room .status { margin-top: 2px; font-size: 10px; color: rgba(255,255,255,.72); }
-  .room .dot {
-    position: absolute; top: 8px; right: 8px;
-    width: 9px; height: 9px; border-radius: 50%;
-    background: var(--dot-offline); border: 2px solid rgba(0,0,0,.25);
-  }
-  .room[data-status="working"] .dot,
-  .room[data-status="active"] .dot { background: var(--dot-working); box-shadow: 0 0 8px var(--dot-working); }
-  .room[data-status="idle"] .dot { background: var(--dot-idle); }
-  .room[data-status="afk"] .dot { background: var(--dot-afk); }
-  .room[data-status="offline"] .dot { background: var(--dot-offline); }
-  .room[data-status="offline"] { opacity: .55; }
-  .room[data-status="offline"] .emoji { filter: grayscale(1) drop-shadow(0 2px 4px rgba(0,0,0,.4)); }
-  .room.hub { border-color: rgba(255,255,255,.35); }
-  .room.working-pulse::after {
-    content: ""; position: absolute; inset: 0; border-radius: 14px;
-    box-shadow: inset 0 0 0 2px var(--dot-working);
-    animation: pulse 1.8s ease-in-out infinite; pointer-events: none;
-  }
-  @keyframes pulse { 0%,100% { opacity: .25; } 50% { opacity: .9; } }
-  .room.receiving { animation: recv .6s ease; }
-  @keyframes recv { 0% { transform: scale(1); } 40% { transform: scale(1.05); } 100% { transform: scale(1); } }
+  .stage{position:relative;width:100%}
+  .stage canvas{position:absolute;inset:0;width:100%;height:100%;image-rendering:pixelated}
+  #bg{z-index:1} #fg{z-index:2}
+  #overlay{position:absolute;inset:0;z-index:3;pointer-events:none}
 
-  /* Walker: an absolutely positioned sprite that glides room-to-room.
-     Its transform is owned ONLY by the walk logic; status refreshes never
-     touch it, so a walk can never be silently interrupted. */
-  .walker {
-    position: absolute; top: 0; left: 0;
-    width: 34px; height: 34px; margin: -17px 0 0 -17px;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 22px; border-radius: 50%;
-    background: #5b6ee1; box-shadow: 0 4px 14px rgba(0,0,0,.45);
-    border: 2px solid rgba(255,255,255,.8);
-    transition: transform .9s cubic-bezier(.5,.05,.3,1);
-    z-index: 5; pointer-events: none;
-    will-change: transform;
-  }
-  .walker.walking { animation: bob .28s ease-in-out infinite; }
-  @keyframes bob { 0%,100% { margin-top: -17px; } 50% { margin-top: -21px; } }
+  .label{position:absolute;transform:translateX(-50%);background:rgba(0,0,0,.72);
+    border-radius:5px;padding:3px 7px 4px;text-align:center;white-space:nowrap;
+    pointer-events:auto;cursor:pointer;line-height:1.15}
+  .label .nm{font-size:11px;font-weight:700}
+  .label .st{font-size:9px;color:#c3cad8;margin-top:1px}
+  .label .dot{display:inline-block;width:6px;height:6px;border-radius:50%;margin-right:4px;vertical-align:middle;background:var(--dot-offline)}
+  .label[data-status="active"] .dot,.label[data-status="working"] .dot{background:var(--dot-active);box-shadow:0 0 5px var(--dot-active)}
+  .label[data-status="idle"] .dot{background:var(--dot-idle)}
+  .label[data-status="afk"] .dot{background:var(--dot-afk)}
+  .label[data-status="offline"] .dot{background:var(--dot-offline)}
 
-  footer { margin-top: 18px; color: var(--muted); font-size: 11px; text-align: center; }
-  footer code { color: #aab3c8; }
+  .bubble{position:absolute;transform:translate(-50%,-100%);background:#f4f1e8;color:#1a1a1a;
+    font-size:11px;font-weight:600;padding:5px 9px;border-radius:9px;white-space:nowrap;
+    box-shadow:0 3px 8px rgba(0,0,0,.5);opacity:0;transition:opacity .2s;pointer-events:none;z-index:4}
+  .bubble::after{content:"";position:absolute;left:50%;bottom:-6px;transform:translateX(-50%);
+    border:6px solid transparent;border-top-color:#f4f1e8;border-bottom:0}
+  .bubble.show{opacity:1}
 
-  /* Modal */
-  .modal-back {
-    position: fixed; inset: 0; background: rgba(0,0,0,.5);
-    display: none; align-items: center; justify-content: center; z-index: 20; padding: 16px;
-  }
-  .modal-back.open { display: flex; }
-  .modal {
-    background: var(--panel); border: 1px solid var(--line); border-radius: 16px;
-    padding: 22px; max-width: 340px; width: 100%; box-shadow: var(--shadow);
-  }
-  .modal .head { display: flex; align-items: center; gap: 12px; }
-  .modal .head .emoji { font-size: 40px; }
-  .modal h2 { margin: 0; font-size: 18px; }
-  .modal .st { font-size: 12px; color: var(--muted); margin-top: 2px; }
-  .modal p { color: #c3cad8; font-size: 13px; line-height: 1.5; }
-  .modal .meta { font-size: 12px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 10px; margin-top: 10px; }
-  .modal .close { margin-top: 14px; width: 100%; padding: 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel-2); color: var(--ink); cursor: pointer; font-size: 13px; }
-  .modal .close:hover { background: #232838; }
+  .ticker{margin-top:12px;border-top:1px solid var(--line);overflow:hidden;white-space:nowrap;
+    padding:9px 0 12px;font-size:12px;position:relative;-webkit-mask-image:linear-gradient(90deg,transparent,#000 6%,#000 94%,transparent)}
+  .ticker .run{display:inline-block;padding-left:100%;animation:scroll 26s linear infinite}
+  .ticker:hover .run{animation-play-state:paused}
+  @keyframes scroll{to{transform:translateX(-100%)}}
+  .ticker .ev{margin:0 26px}
+  .ticker .from{color:#f2c14e} .ticker .arrow{color:var(--muted);margin:0 5px} .ticker .to{color:#3fd07a}
+  .ticker .why{color:var(--muted);margin-left:6px}
+  .ticker.empty{color:var(--muted)}
+
+  .modal-back{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;align-items:center;justify-content:center;z-index:30;padding:16px}
+  .modal-back.open{display:flex}
+  .modal{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px;max-width:320px;width:100%}
+  .modal .hd{display:flex;align-items:center;gap:12px}.modal .hd .em{font-size:34px}
+  .modal h2{margin:0;font-size:17px}.modal .st{font-size:11px;color:var(--muted);margin-top:2px}
+  .modal p{color:#c3cad8;font-size:12px;line-height:1.5}
+  .modal .meta{font-size:11px;color:var(--muted);border-top:1px solid var(--line);padding-top:9px;margin-top:8px}
+  .modal button{margin-top:12px;width:100%;padding:9px;border-radius:9px;border:1px solid var(--line);background:var(--panel2);color:var(--ink);cursor:pointer;font-family:inherit}
 </style>
 </head>
 <body>
 <div class="wrap">
   <header>
-    <h1>Agent Village <span class="sub">live view of your Hermes agents</span></h1>
+    <h1>AGENT VILLAGE</h1>
     <div class="conn" id="conn"><span class="led"></span><span id="connText">connecting…</span></div>
   </header>
 
-  <div class="board" id="board">
-    <div class="walker" id="walker">⚙️</div>
+  <div class="stage" id="stage">
+    <canvas id="bg"></canvas>
+    <canvas id="fg"></canvas>
+    <div id="overlay"></div>
+    <div class="bubble" id="bubble"></div>
   </div>
 
-  <footer>
-    Read-only window into <code>~/.hermes/state.db</code>. General delegates on
-    his own — a walk means a child session was spawned under General's thread.
-  </footer>
+  <div class="ticker empty" id="ticker">waiting for delegations…</div>
 </div>
 
-<div class="modal-back" id="modalBack">
-  <div class="modal" id="modal"></div>
-</div>
+<div class="modal-back" id="modalBack"><div class="modal" id="modal"></div></div>
 
 <script>
-const board = document.getElementById('board');
-const walker = document.getElementById('walker');
-const connEl = document.getElementById('conn');
-const connText = document.getElementById('connText');
+const COLS=3, ROWS=3, ASPECT=1.34;           // cell height / width
+const stage=document.getElementById('stage');
+const bg=document.getElementById('bg'), fg=document.getElementById('fg');
+const bctx=bg.getContext('2d'), fctx=fg.getContext('2d');
+const overlay=document.getElementById('overlay'), bubble=document.getElementById('bubble');
+const connEl=document.getElementById('conn'), connText=document.getElementById('connText');
+const tickerEl=document.getElementById('ticker');
 
-let AGENTS = [];
-let byId = {};
-const roomEls = {};
-const seenDelegations = new Set();
+let AGENTS=[], byId={}, rects={}, labels={};
+let cw=0, ch=0, dpr=1;
+const seenDeleg=new Set(); const tickerEvents=[];
 
-function statusColorRoom(color) {
-  // dim the flat tile color so text/emoji pop
-  return color || '#1d2230';
-}
+// character shirt colors per agent
+const SHIRT={general:'#f2c14e',finance:'#8a6fc0',reminders:'#4a76d6',memory:'#5bbf6a',
+  predictions:'#4aa3c0',books:'#c08a5b',health:'#d05b5b',japanese:'#3a3a52',coding:'#5bbf7a'};
+// room themes: [wall, floor, accent]
+const THEME={
+  general:['#232838','#171a24','#3fd07a'],
+  finance:['#6b5a2a','#4a3d1c','#3fd07a'],
+  reminders:['#1f4d47','#163832','#e6e0d0'],
+  memory:['#3d2a52','#2a1d3a','#c0a0e0'],
+  predictions:['#1b2a52','#131d3a','#8fb4ff'],
+  books:['#5a3a22','#3d2716','#e0c060'],
+  health:['#4d1f1f','#331414','#d05b5b'],
+  japanese:['#b8a06a','#a08a52','#d06868'],
+  coding:['#14332e','#0d211d','#5bbf7a'],
+};
 
-async function boot() {
-  const cfg = await fetch('agents.json').then(r => r.json()).catch(() => null);
-  AGENTS = cfg ? cfg.agents : [];
-  byId = Object.fromEntries(AGENTS.map(a => [a.id, a]));
-  buildBoard();
-  // initial status
-  try {
-    const data = await fetch('api/agents').then(r => r.json());
-    applyAgents(data.agents);
-  } catch (e) { /* SSE will fill in */ }
-  placeWalkerAt('general');
+async function boot(){
+  const cfg=await fetch('agents.json').then(r=>r.json()).catch(()=>null);
+  AGENTS=cfg?cfg.agents:[]; byId=Object.fromEntries(AGENTS.map(a=>[a.id,a]));
+  buildLabels();
+  try{const d=await fetch('api/agents').then(r=>r.json()); applyAgents(d.agents);}catch(e){}
+  resize(); window.addEventListener('resize',resize);
+  requestAnimationFrame(loop);
   connectSSE();
-  window.addEventListener('resize', () => placeWalkerAt('general'));
 }
 
-function buildBoard() {
-  // rooms are grid cells; keep the walker as the last child (on top)
-  AGENTS.forEach(a => {
-    const el = document.createElement('div');
-    el.className = 'room' + (a.isHub ? ' hub' : '');
-    el.style.gridColumn = (a.col + 1);
-    el.style.gridRow = (a.row + 1);
-    el.style.setProperty('--room-color', shade(a.color, -0.55));
-    el.dataset.agent = a.id;
-    el.dataset.status = 'offline';
-    el.innerHTML = `
-      <span class="dot"></span>
-      <span class="emoji">${a.emoji}</span>
-      <span class="name">${a.name}</span>
-      <span class="status">—</span>`;
-    el.addEventListener('click', () => showInfo(a.id));
-    board.insertBefore(el, walker);
-    roomEls[a.id] = el;
+// ---------- layout ----------
+function layout(){
+  const W=stage.clientWidth;
+  cw=Math.floor(W/COLS); ch=Math.round(cw*ASPECT);
+  const H=ch*ROWS;
+  stage.style.height=H+'px';
+  dpr=Math.min(window.devicePixelRatio||1,2);
+  for(const c of [bg,fg]){ c.width=W*dpr; c.height=H*dpr; }
+  bctx.setTransform(dpr,0,0,dpr,0,0); fctx.setTransform(dpr,0,0,dpr,0,0);
+  rects={};
+  AGENTS.forEach(a=>{ rects[a.id]={x:a.col*cw,y:a.row*ch,w:cw,h:ch,cx:a.col*cw+cw/2,cy:a.row*ch+ch/2}; });
+}
+function resize(){ layout(); positionLabels(); drawBackground(); placeWalkerHome(); }
+
+// ---------- background (rooms + furniture) ----------
+function R(x,y,w,h,col){bctx.fillStyle=col;bctx.fillRect(Math.round(x),Math.round(y),Math.ceil(w),Math.ceil(h));}
+function drawBackground(){
+  bctx.clearRect(0,0,bg.width,bg.height);
+  AGENTS.forEach(a=>drawRoom(a));
+}
+function drawRoom(a){
+  const r=rects[a.id], t=THEME[a.id]||THEME.general;
+  const off=(byId[a.id]?.status)==='offline';
+  R(r.x,r.y,r.w,r.h,t[0]);                           // wall
+  R(r.x,r.y+r.h*0.72,r.w,r.h*0.28,t[1]);             // floor
+  R(r.x,r.y,r.w,3,'rgba(255,255,255,.06)');          // top light
+  R(r.x,r.y,3,r.h,'rgba(0,0,0,.25)'); R(r.x+r.w-3,r.y,3,r.h,'rgba(0,0,0,.25)'); // side shade
+  drawFurniture(a.id,r);
+  if(off){ bctx.fillStyle='rgba(6,8,12,.62)'; bctx.fillRect(r.x,r.y,r.w,r.h); }
+  R(r.x,r.y,r.w,1,'#0a0c10');R(r.x,r.y+r.h-1,r.w,1,'#0a0c10');
+  R(r.x,r.y,1,r.h,'#0a0c10');R(r.x+r.w-1,r.y,1,r.h,'#0a0c10');
+}
+function txt(s,x,y,size,col){bctx.fillStyle=col;bctx.font=`700 ${size}px ui-monospace,monospace`;bctx.textBaseline='top';bctx.fillText(s,x,y);}
+
+function drawFurniture(id,r){
+  const x=r.x,y=r.y,w=r.w,h=r.h, u=w/16; // unit
+  switch(id){
+    case 'finance':{ // bar chart, safe, gold bars
+      const bx=x+2*u,by=y+3*u;[3,5,7,9].forEach((hh,i)=>R(bx+i*1.4*u,by+(9-hh)*u*0.6,u,hh*u*0.6,'#3fd07a'));
+      R(x+11*u,y+2.5*u,3.5*u,3.5*u,'#555b66');R(x+12.4*u,y+4*u,0.7*u,0.7*u,'#cdd3dc'); // safe + dial
+      R(x+2*u,y+9*u,7*u,1.4*u,'#7a5a1e');[0,1].forEach(i=>R(x+(2.5+i*2)*u,y+8.2*u,1.6*u,0.9*u,'#f2c14e')); // gold bars
+      break;}
+    case 'reminders':{ // clock + TODO note + stickies
+      const cxp=x+6*u,cyp=y+3.6*u,rad=2.6*u;
+      bctx.fillStyle='#f4f1e8';bctx.beginPath();bctx.arc(cxp,cyp,rad,0,7);bctx.fill();
+      bctx.strokeStyle='#1a1a1a';bctx.lineWidth=Math.max(2,u*0.3);
+      bctx.beginPath();bctx.moveTo(cxp,cyp);bctx.lineTo(cxp,cyp-rad*0.6);bctx.moveTo(cxp,cyp);bctx.lineTo(cxp+rad*0.55,cyp+rad*0.2);bctx.stroke();
+      R(x+9.5*u,y+2.2*u,3.4*u,3.4*u,'#e2e2dc');R(x+9.5*u,y+2.2*u,3.4*u,0.9*u,'#d05b5b');txt('TODO',x+9.7*u,y+3.4*u,u*1.1,'#333');
+      R(x+2*u,y+9*u,1.6*u,1.1*u,'#e0c94e');R(x+8*u,y+9*u,1.6*u,1.1*u,'#d07ab0');break;}
+    case 'memory':{ // two bookshelves + desk/monitor
+      [2,11].forEach(sx=>{for(let i=0;i<5;i++)R(x+sx*u,y+(2+i*1.1)*u,3*u,0.9*u,`hsl(${i*63},55%,55%)`);});
+      R(x+5.5*u,y+8*u,5*u,1.2*u,'#7a5a3a');R(x+6.5*u,y+6.2*u,3*u,1.8*u,'#e8e8e8');break;}
+    case 'predictions':{ // crystal ball + line chart
+      const cxp=x+5*u,cyp=y+9*u;
+      bctx.fillStyle='rgba(140,170,255,.28)';bctx.beginPath();bctx.arc(cxp,cyp,3*u,0,7);bctx.fill();
+      bctx.fillStyle='#8fb4ff';bctx.beginPath();bctx.arc(cxp-0.7*u,cyp-0.7*u,1*u,0,7);bctx.fill();
+      bctx.strokeStyle='#cfe0ff';bctx.lineWidth=Math.max(2,u*0.25);bctx.beginPath();
+      [[10,4],[11.5,3],[13,4.5],[14,3.2]].forEach((p,i)=>{const px=x+p[0]*u,py=y+p[1]*u;i?bctx.lineTo(px,py):bctx.moveTo(px,py);});bctx.stroke();break;}
+    case 'general':{ // server code lines + monitors
+      for(let i=0;i<6;i++)R(x+1.5*u,y+(2+i*0.9)*u,(3+ (i%3))*u,0.5*u,'#3fd07a');
+      R(x+8*u,y+2.4*u,3*u,2.2*u,'#3a86ff');R(x+11.4*u,y+2.4*u,2.6*u,2.2*u,'#f0821e');R(x+9.4*u,y+7.5*u,3.2*u,2*u,'#2a3550');break;}
+    case 'books':{ // top shelf + sofa + lamp
+      for(let i=0;i<14;i++)R(x+(1+i)*u,y+2*u,0.8*u,2.4*u,`hsl(${i*26},50%,55%)`);
+      R(x+3*u,y+8.2*u,7*u,2.2*u,'#b07a4a');R(x+3*u,y+7.4*u,7*u,1*u,'#c99b6a');
+      R(x+12*u,y+7.5*u,0.6*u,3*u,'#8a6a3a');R(x+11*u,y+6.4*u,2.6*u,1.4*u,'#f2c14e');break;}
+    case 'health':{ // TV + dumbbell + ball + mat + 10km
+      R(x+4.5*u,y+2.2*u,7*u,3.4*u,'#101418');R(x+5*u,y+2.7*u,1.2*u,0.8*u,'#3fd07a');
+      R(x+2*u,y+8.8*u,4*u,0.7*u,'#888');R(x+1.6*u,y+8.4*u,0.9*u,1.5*u,'#555');R(x+5.5*u,y+8.4*u,0.9*u,1.5*u,'#555');
+      bctx.fillStyle='#b03a3a';bctx.beginPath();bctx.arc(x+11*u,y+9.4*u,1.5*u,0,7);bctx.fill();
+      R(x+1.5*u,y+10.6*u,4*u,0.8*u,'#7a4ac0');txt('10km',x+1.5*u,y+6.3*u,u*1.3,'#5bbf6a');break;}
+    case 'japanese':{ // tatami grid + shoji windows + table + plant
+      for(let i=1;i<4;i++){R(x+(i*4)*u,y+2*u,1,h*0.7,'rgba(0,0,0,.18)');}
+      for(let i=1;i<3;i++){R(x+u,y+(2+i*3)*u,w-2*u,1,'rgba(0,0,0,.14)');}
+      R(x+2*u,y+2*u,3*u,3*u,'#e08a3a');R(x+11*u,y+2*u,3*u,3*u,'#e08a3a');R(x+3.5*u,y+2*u,0.3*u,3*u,'#a8642a');
+      R(x+5.5*u,y+8.5*u,5*u,1.6*u,'#7a4a2a');
+      bctx.fillStyle='#3a8a4a';bctx.beginPath();bctx.arc(x+13*u,y+9*u,1.3*u,0,7);bctx.fill();R(x+12.6*u,y+9.6*u,0.8*u,1.6*u,'#6a4a2a');break;}
+    case 'coding':{ // terminal window
+      R(x+2*u,y+2.4*u,12*u,5.5*u,'#0a0e0c');R(x+2*u,y+2.4*u,12*u,1*u,'#1c2a24');
+      R(x+2.5*u,y+2.7*u,0.5*u,0.5*u,'#d05b5b');R(x+3.3*u,y+2.7*u,0.5*u,0.5*u,'#e0c94e');R(x+4.1*u,y+2.7*u,0.5*u,0.5*u,'#5bbf7a');
+      txt('> npm run',x+2.6*u,y+4*u,u*1.15,'#5bbf7a');txt('build...',x+2.6*u,y+5.6*u,u*1.15,'#3a8a5a');break;}
+  }
+}
+
+// ---------- characters (foreground animation layer) ----------
+function drawChar(cx,feetY,s,shirt){ // s = pixel unit
+  const skin='#e8b088', hair='#3a2a1a', legs='#2a2a3a';
+  const P=(gx,gy,gw,gh,c)=>{fctx.fillStyle=c;fctx.fillRect(Math.round(cx+gx*s),Math.round(feetY+gy*s),Math.ceil(gw*s),Math.ceil(gh*s));};
+  P(-2,-8,4,1.4,hair); P(-2,-6.8,4,2.6,skin); P(-1.3,-6,0.7,0.7,'#1a1a1a'); P(0.6,-6,0.7,0.7,'#1a1a1a');
+  P(-2.2,-4.2,4.4,3.2,shirt); P(-2.2,-1,1.7,1,legs); P(0.5,-1,1.7,1,legs);
+}
+let walker={x:0,y:0,tx:0,ty:0,home:{x:0,y:0},state:'home',t:0};
+let walkQueue=[]; let bubbleText='';
+function placeWalkerHome(){const r=rects['general'];if(!r)return;walker.home={x:r.cx,y:r.y+r.h*0.86};if(walker.state==='home'){walker.x=walker.home.x;walker.y=walker.home.y;}}
+function enqueueWalk(ev){walkQueue.push(ev);}
+function startWalk(ev){const r=rects[ev.to];if(!r)return false;walker.state='out';walker.t=0;
+  walker.sx=walker.x;walker.sy=walker.y;walker.tx=r.cx;walker.ty=r.y+r.h*0.86;
+  bubbleText=ev.reason||('→ '+(byId[ev.to]?.name||ev.to));return true;}
+
+function loop(ts){
+  fctx.clearRect(0,0,fg.width,fg.height);
+  const time=ts/1000, s=cw*0.055;
+  // resident characters (skip General home spot while walker is there)
+  AGENTS.forEach(a=>{
+    if(a.id==='general') return;
+    const st=byId[a.id]?.status; if(st==='offline') return;
+    const r=rects[a.id]; const bobY=(st==='working'||st==='active')?Math.sin(time*3+a.col)*2:0;
+    drawChar(r.cx, r.y+r.h*0.86+bobY, s, SHIRT[a.id]||'#888');
+  });
+  // walker (General) state machine
+  const dur=0.9;
+  if(walker.state==='home' && walkQueue.length){ startWalk(walkQueue.shift()); }
+  if(walker.state==='out'||walker.state==='back'){
+    walker.t+=1/60/dur; const k=Math.min(walker.t,1); const e=k<.5?2*k*k:1-Math.pow(-2*k+2,2)/2;
+    walker.x=walker.sx+(walker.tx-walker.sx)*e; walker.y=walker.sy+(walker.ty-walker.sy)*e;
+    if(k>=1){ if(walker.state==='out'){walker.state='visit';walker.t=0;} else {walker.state='home';bubbleText='';} }
+  } else if(walker.state==='visit'){
+    walker.t+=1/60; if(walker.t>1.1){walker.state='back';walker.t=0;walker.sx=walker.x;walker.sy=walker.y;walker.tx=walker.home.x;walker.ty=walker.home.y;}
+  }
+  const moving=(walker.state==='out'||walker.state==='back');
+  const wbob=moving?Math.abs(Math.sin(time*10))*2:0;
+  drawChar(walker.x, walker.y-wbob, s*1.05, SHIRT.general);
+  // speech bubble follows walker
+  if(bubbleText && walker.state!=='home'){
+    bubble.textContent=bubbleText; bubble.classList.add('show');
+    bubble.style.left=walker.x+'px'; bubble.style.top=(walker.y-s*9)+'px';
+  } else bubble.classList.remove('show');
+  requestAnimationFrame(loop);
+}
+
+// ---------- labels (DOM overlay) ----------
+function buildLabels(){
+  overlay.innerHTML='';
+  AGENTS.forEach(a=>{
+    const el=document.createElement('div'); el.className='label'; el.dataset.status='offline';
+    el.innerHTML=`<div class="nm"><span class="dot"></span>${a.emoji} ${a.name}</div><div class="st">—</div>`;
+    el.addEventListener('click',()=>showInfo(a.id)); overlay.appendChild(el); labels[a.id]=el;
   });
 }
+function positionLabels(){ AGENTS.forEach(a=>{const r=rects[a.id];const el=labels[a.id];if(!r||!el)return;
+  el.style.left=r.cx+'px'; el.style.top=(r.y+6)+'px';}); }
+function applyAgents(agents){ agents.forEach(a=>{ byId[a.id]={...byId[a.id],...a};
+  const el=labels[a.id]; if(el){el.dataset.status=a.status; el.querySelector('.st').textContent=a.statusLabel;} });
+  drawBackground(); }
 
-function applyAgents(agents) {
-  agents.forEach(a => {
-    const el = roomEls[a.id];
-    if (!el) return;
-    el.dataset.status = a.status;
-    el.querySelector('.status').textContent = a.statusLabel;
-    el.classList.toggle('working-pulse', a.status === 'working');
-    byId[a.id] = { ...byId[a.id], ...a };
-  });
+// ---------- delegations / ticker ----------
+function handleDelegations(list){ let added=false;
+  list.forEach(d=>{ if(seenDeleg.has(d.id))return; seenDeleg.add(d.id); enqueueWalk(d); tickerEvents.unshift(d); added=true; });
+  if(added){ tickerEvents.splice(30); renderTicker(); }
 }
-
-// ---- Walk animation (transform-only; immune to status refreshes) ----
-let walkQueue = [];
-let walking = false;
-
-function roomCenter(id) {
-  const el = roomEls[id];
-  const b = board.getBoundingClientRect();
-  const r = el.getBoundingClientRect();
-  return { x: r.left - b.left + r.width / 2, y: r.top - b.top + r.height / 2 };
+function renderTicker(){
+  if(!tickerEvents.length){tickerEl.className='ticker empty';tickerEl.textContent='waiting for delegations…';return;}
+  tickerEl.className='ticker';
+  const run=tickerEvents.map(d=>{const to=byId[d.to]?.name||d.to;
+    return `<span class="ev"><span class="from">General</span><span class="arrow">→</span><span class="to">${to}</span>${d.reason?`<span class="why">: ${escapeHtml(d.reason)}</span>`:''}</span>`;}).join('');
+  tickerEl.innerHTML=`<span class="run">${run}${run}</span>`;
 }
+function escapeHtml(s){return s.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 
-function placeWalkerAt(id) {
-  const c = roomCenter(id);
-  walker.style.transition = 'none';
-  walker.style.transform = `translate(${c.x}px, ${c.y}px)`;
-  // force reflow so the next transition applies
-  void walker.offsetWidth;
-  walker.style.transition = '';
+// ---------- SSE ----------
+function connectSSE(){
+  const es=new EventSource('api/agents/stream');
+  es.addEventListener('open',()=>setConn(true));
+  es.addEventListener('error',()=>setConn(false));
+  es.addEventListener('agents',e=>applyAgents(JSON.parse(e.data).agents));
+  es.addEventListener('delegations',e=>handleDelegations(JSON.parse(e.data).delegations));
 }
+function setConn(l){connEl.classList.toggle('live',l);connText.textContent=l?'live':'reconnecting…';}
 
-function enqueueWalk(targetId) {
-  walkQueue.push(targetId);
-  if (!walking) nextWalk();
-}
-
-function nextWalk() {
-  if (!walkQueue.length) { walking = false; return; }
-  walking = true;
-  const targetId = walkQueue.shift();
-  const target = roomCenter(targetId);
-  walker.classList.add('walking');
-  walker.style.transform = `translate(${target.x}px, ${target.y}px)`;
-
-  const onArrive = () => {
-    walker.removeEventListener('transitionend', onArrive);
-    if (roomEls[targetId]) {
-      roomEls[targetId].classList.remove('receiving');
-      void roomEls[targetId].offsetWidth;
-      roomEls[targetId].classList.add('receiving');
-    }
-    setTimeout(() => {
-      // walk back home to General
-      const home = roomCenter('general');
-      walker.style.transform = `translate(${home.x}px, ${home.y}px)`;
-      const onHome = () => {
-        walker.removeEventListener('transitionend', onHome);
-        walker.classList.remove('walking');
-        setTimeout(nextWalk, 200);
-      };
-      walker.addEventListener('transitionend', onHome);
-    }, 900);
-  };
-  walker.addEventListener('transitionend', onArrive);
-}
-
-function handleDelegations(list) {
-  list.forEach(d => {
-    if (seenDelegations.has(d.id)) return;
-    seenDelegations.add(d.id);
-    if (roomEls[d.to]) enqueueWalk(d.to);
-  });
-}
-
-// ---- SSE ----
-function connectSSE() {
-  const es = new EventSource('api/agents/stream');
-  es.addEventListener('open', () => setConn(true));
-  es.addEventListener('error', () => setConn(false));
-  es.addEventListener('agents', e => applyAgents(JSON.parse(e.data).agents));
-  es.addEventListener('delegations', e => handleDelegations(JSON.parse(e.data).delegations));
-}
-
-function setConn(live) {
-  connEl.classList.toggle('live', live);
-  connText.textContent = live ? 'live' : 'reconnecting…';
-}
-
-// ---- Info modal ----
-const modalBack = document.getElementById('modalBack');
-const modal = document.getElementById('modal');
-function showInfo(id) {
-  const a = byId[id];
-  if (!a) return;
-  const last = a.lastActive ? new Date(a.lastActive * 1000).toLocaleString() : '—';
-  modal.innerHTML = `
-    <div class="head">
-      <span class="emoji">${a.emoji}</span>
-      <div><h2>${a.name}</h2><div class="st">${a.statusLabel || ''}</div></div>
-    </div>
-    <p>${a.description || ''}</p>
-    <div class="meta">Thread <b>${a.thread}</b> · status <b>${a.status || '—'}</b><br>Last active: ${last}</div>
-    <button class="close" onclick="hideInfo()">Close</button>`;
-  modalBack.classList.add('open');
-}
-function hideInfo() { modalBack.classList.remove('open'); }
-modalBack.addEventListener('click', e => { if (e.target === modalBack) hideInfo(); });
-
-// ---- color helper: shade a hex toward black(-)/white(+) ----
-function shade(hex, amt) {
-  if (!hex) return '#1d2230';
-  const n = parseInt(hex.slice(1), 16);
-  let r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
-  const t = amt < 0 ? 0 : 255, p = Math.abs(amt);
-  r = Math.round((t - r) * p + r);
-  g = Math.round((t - g) * p + g);
-  b = Math.round((t - b) * p + b);
-  return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
-}
+// ---------- modal ----------
+const modalBack=document.getElementById('modalBack'),modal=document.getElementById('modal');
+function showInfo(id){const a=byId[id];if(!a)return;
+  const last=a.lastActive?new Date(a.lastActive*1000).toLocaleString():'—';
+  modal.innerHTML=`<div class="hd"><span class="em">${a.emoji}</span><div><h2>${a.name}</h2><div class="st">${a.statusLabel||''}</div></div></div>
+    <p>${a.description||''}</p><div class="meta">Thread <b>${a.thread}</b> · status <b>${a.status||'—'}</b><br>Last active: ${last}</div>
+    <button onclick="hideInfo()">Close</button>`;
+  modalBack.classList.add('open');}
+function hideInfo(){modalBack.classList.remove('open');}
+modalBack.addEventListener('click',e=>{if(e.target===modalBack)hideInfo();});
 
 boot();
 </script>

@@ -245,7 +245,7 @@ def get_delegations(limit: int = 20, since: float | None = None) -> list[dict]:
         ph = ",".join("?" for _ in target_threads)
         q = (
             "SELECT child.id AS child_id, child.thread_id AS thread, "
-            "       child.started_at AS started "
+            "       child.started_at AS started, child.title AS title "
             "FROM sessions child "
             "JOIN sessions parent ON child.parent_session_id = parent.id "
             f"WHERE parent.thread_id = ? AND child.thread_id IN ({ph}) "
@@ -264,11 +264,13 @@ def get_delegations(limit: int = 20, since: float | None = None) -> list[dict]:
         ts = _to_epoch(row["started"])
         if since is not None and ts <= since:
             continue
+        reason = (row["title"] or "").strip() if "title" in row.keys() else ""
         events.append({
             "id": f"deleg-{row['child_id']}",
             "from": "general",
             "to": target,
             "thread": int(row["thread"]),
+            "reason": reason,
             "ts": ts,
         })
         if len(events) >= limit:
