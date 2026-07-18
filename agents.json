@@ -1,13 +1,13 @@
 {
   "agents": [
-    {"id": "finance",     "name": "Finance",     "thread": 5,   "emoji": "💰", "col": 0, "row": 0, "neon": "#39c979", "description": "Budgets, spending, and money tracking."},
-    {"id": "memory",      "name": "Memory",      "thread": 6,   "emoji": "🧠", "col": 1, "row": 0, "neon": "#a86fd8", "description": "Long-term memory / Notion logging."},
-    {"id": "predictions", "name": "Predictions", "thread": 7,   "emoji": "🔮", "col": 2, "row": 0, "neon": "#5aa8e8", "description": "Forecasts and predictions."},
-    {"id": "reminders",   "name": "Reminders",   "thread": 2,   "emoji": "📋", "col": 0, "row": 1, "neon": "#e8973d", "description": "Reminders and Todoist tasks."},
-    {"id": "general",     "name": "General",     "thread": 1,   "emoji": "⚙️", "col": 1, "row": 1, "neon": "#f2c14e", "alwaysOnline": true, "isHub": true, "description": "Coordinates the village and delegates to the other agents."},
-    {"id": "books",       "name": "Books",       "thread": 81,  "emoji": "📚", "col": 2, "row": 1, "neon": "#d8703f", "description": "Book downloads and reading."},
-    {"id": "health",      "name": "Health",      "thread": 119, "emoji": "💪", "col": 0, "row": 2, "neon": "#e05555", "description": "Health and fitness tracking."},
-    {"id": "japanese",    "name": "Japanese",    "thread": 362, "emoji": "🗾", "col": 1, "row": 2, "neon": "#e06a9a", "description": "Japanese study and quizzes."},
-    {"id": "coding",      "name": "Coding",      "thread": 1,   "emoji": "💻", "col": 2, "row": 2, "neon": "#3fbf9a", "sharesThreadWithGeneral": true, "description": "Coding tasks and dev work."}
+    {"id": "general",     "name": "General",     "thread": 1,   "emoji": "⚙️", "floor": 5, "slot": "full",  "neon": "#ffd52e", "alwaysOnline": true, "isHub": true, "description": "Coordinates the village and delegates to the other agents."},
+    {"id": "finance",     "name": "Finance",     "thread": 5,   "emoji": "💰", "floor": 4, "slot": "left",  "neon": "#39ff88", "description": "Budgets, spending, and money tracking."},
+    {"id": "memory",      "name": "Memory",      "thread": 6,   "emoji": "🧠", "floor": 4, "slot": "right", "neon": "#c77dff", "description": "Long-term memory / Notion logging."},
+    {"id": "reminders",   "name": "Reminders",   "thread": 2,   "emoji": "📋", "floor": 3, "slot": "left",  "neon": "#ff9e3d", "description": "Reminders and Todoist tasks."},
+    {"id": "predictions", "name": "Predictions", "thread": 7,   "emoji": "🔮", "floor": 3, "slot": "right", "neon": "#4dc9ff", "description": "Forecasts and predictions."},
+    {"id": "books",       "name": "Books",       "thread": 81,  "emoji": "📚", "floor": 2, "slot": "left",  "neon": "#ff7847", "description": "Book downloads and reading."},
+    {"id": "health",      "name": "Health",      "thread": 119, "emoji": "💪", "floor": 2, "slot": "right", "neon": "#ff4d6d", "description": "Health and fitness tracking."},
+    {"id": "japanese",    "name": "Japanese",    "thread": 362, "emoji": "🗾", "floor": 1, "slot": "left",  "neon": "#ff5fa2", "description": "Japanese study and quizzes."},
+    {"id": "coding",      "name": "Coding",      "thread": 1,   "emoji": "💻", "floor": 1, "slot": "right", "neon": "#39ffb4", "sharesThreadWithGeneral": true, "description": "Coding tasks and dev work."}
   ]
 }
