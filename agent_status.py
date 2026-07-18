@@ -83,7 +83,10 @@ DELEGATION_KEYWORDS: dict[str, list[str]] = {
     "books":       ["download book", "download a book", "get the book", "ebook"],
     "health":      ["track health", "log workout", "log my run", "track my run"],
     "japanese":    ["japanese quiz", "quiz me", "japanese practice"],
-    "coding":      ["coding task", "code this", "write a script"],
+    "coding":      ["coding task", "code this", "write a script", "write code",
+                    "fix the bug", "debug", "deploy", "dashboard", "update the dashboard",
+                    "build the", "git ", "repo", "commit", "pull request", "refactor",
+                    "css", "html", "javascript", "python script", "agent village"],
 }
 
 
