@@ -78,7 +78,8 @@ DELEG_MARKER = re.compile(r"\[\[\s*delegate\s*:\s*([a-z_]+)\s*(?:\|\s*(.*?))?\s*
 DELEGATION_KEYWORDS: dict[str, list[str]] = {
     "reminders":   ["remind", "reminder"],
     "finance":     ["budget", "spending", "expense"],
-    "memory":      ["log to notion", "save to notion", "remember this", "log to"],
+    "memory":      ["notion", "log this", "log that", "log it", "save this",
+                    "remember this", "note this", "add to memory", "log to"],
     "predictions": ["predict", "forecast"],
     "books":       ["download book", "download a book", "get the book", "ebook"],
     "health":      ["track health", "log workout", "log my run", "track my run"],
@@ -385,15 +386,19 @@ def get_delegations(limit: int = 20, since: float | None = None) -> list[dict]:
     finally:
         con.close()
 
-    # De-dupe: drop keyword events when a higher-precision event (marker or
-    # session) exists for the same target within a short window — they are the
-    # same real-world delegation seen twice (user msg + General's reply).
+    # Markers/sessions are General's explicit decision, so they are authoritative.
+    # Once General is emitting ANY marker, stop trusting the fragile keyword
+    # guesses entirely (they only exist to bootstrap before markers are adopted).
+    # Otherwise, still drop a keyword that duplicates a precise event nearby.
     precise = [e for e in events if e["source"] != "keyword"]
+    uses_markers = any(e["source"] == "marker" for e in events)
     kept = []
     for e in sorted(events, key=lambda e: e["ts"]):
-        if e["source"] == "keyword" and any(
-                p["to"] == e["to"] and abs(p["ts"] - e["ts"]) < 180 for p in precise):
-            continue
+        if e["source"] == "keyword":
+            if uses_markers:
+                continue
+            if any(p["to"] == e["to"] and abs(p["ts"] - e["ts"]) < 180 for p in precise):
+                continue
         kept.append(e)
 
     seen = set()

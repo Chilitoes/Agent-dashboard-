@@ -161,14 +161,15 @@ const DOT_HEX={working:'#39ff88',active:'#39ff88',idle:'#ff9e3d',afk:'#4dc9ff',o
 /* Side modules dock onto the central spine in a staggered zipper.
    w/h are fractions of stage width — every module is a different size. */
 const SIDE_MODS=[
-  {id:'finance',   side:'R', w:0.40, h:0.26},
-  {id:'memory',    side:'L', w:0.43, h:0.30},
-  {id:'reminders', side:'R', w:0.41, h:0.27},
-  {id:'predictions',side:'L', w:0.45, h:0.33},
-  {id:'books',     side:'R', w:0.43, h:0.27},
-  {id:'health',    side:'L', w:0.40, h:0.26},
-  {id:'japanese',  side:'R', w:0.42, h:0.28},
+  {id:'finance',   side:'R', w:0.45, h:0.33},
+  {id:'memory',    side:'L', w:0.49, h:0.25},
+  {id:'reminders', side:'R', w:0.37, h:0.29},
+  {id:'predictions',side:'L', w:0.43, h:0.37},
+  {id:'books',     side:'R', w:0.47, h:0.26},
+  {id:'health',    side:'L', w:0.39, h:0.24},
+  {id:'japanese',  side:'R', w:0.44, h:0.31},
 ];
+let fillers=[], TUBE=0;
 
 /* ============ boot ============ */
 async function boot(){
@@ -195,13 +196,15 @@ function layout(){
   rooms.general={x:bx,y:by,w:bw,h:bh,feetY:by+bh-9,cx:bx+bw/2,
     walkMin:bx+bw*0.10,walkMax:bx+bw*0.90,shape:'bridge',amb:{}};
   spineTop=by+bh;
-  // staggered side modules
-  let yL=spineTop+W*0.030, yR=spineTop+W*0.095;
+  TUBE=tube;
+  // staggered side modules (half-step zipper). Different sizes per module.
+  let yL=spineTop+W*0.030, yR=spineTop+W*0.100;
+  let botL=yL, botR=yR;
   SIDE_MODS.forEach(m=>{
     const w=Math.round(W*m.w), h=Math.round(W*m.h);
     let x, y;
-    if(m.side==='L'){x=spineX-tube-w; y=yL; yL+=h+W*0.045;}
-    else {x=spineX+spineW+tube; y=yR; yR+=h+W*0.045;}
+    if(m.side==='L'){x=spineX-tube-w; y=yL; yL+=h+W*0.042; botL=y+h;}
+    else {x=spineX+spineW+tube; y=yR; yR+=h+W*0.042; botR=y+h;}
     rooms[m.id]={x,y,w,h,feetY:y+h-9,cx:x+w/2,
       walkMin:x+w*0.13,walkMax:x+w*0.87,shape:m.id,side:m.side,tube,amb:{}};
   });
@@ -210,6 +213,15 @@ function layout(){
   rooms.coding={x:ex,y:ey,w:ew,h:eh,feetY:ey+eh-9,cx:ex+ew/2,
     walkMin:ex+ew*0.10,walkMax:ex+ew*0.90,shape:'engine',amb:{}};
   spineBot=ey;
+  // fill the leftover gap beside the taller column with a utility array
+  fillers=[];
+  const shortSide=(botL<botR)?'L':'R';
+  const gapTop=Math.min(botL,botR), gapBot=ey;
+  if(gapBot-gapTop > W*0.15){
+    const fw=Math.round(W*0.30);
+    const fx=shortSide==='L' ? spineX-tube-fw : spineX+spineW+tube;
+    fillers.push({x:fx,y:gapTop+W*0.02,w:fw,h:gapBot-gapTop-W*0.05,side:shortSide});
+  }
   H=Math.round(ey+eh+W*0.15);
   stage.style.height=H+'px';
   dpr=Math.min(window.devicePixelRatio||1,2);
@@ -240,10 +252,53 @@ function drawBackground(){
   drawSpace();
   drawSpine();
   drawTubes();
+  fillers.forEach(drawFiller);
   AGENTS.forEach(a=>{const r=rooms[a.id];if(!r)return;
     ({bridge:drawBridge,finance:drawVault,memory:drawDataCore,reminders:drawChrono,
       predictions:drawObservatory,books:drawLibrary,health:drawCentrifuge,
       japanese:drawZen,engine:drawEngineering}[r.shape]||(()=>{}))(a,r);});
+}
+
+/* decorative utility array that fills the leftover gap beside the tall column:
+   a solar-panel wing + a hydroponics pod hung off a truss to the spine */
+function drawFiller(fl){
+  const {x,y,w,h,side}=fl;
+  const spineEdge = side==='L' ? spineX : spineX+spineW;
+  const armY = y+h*0.30;
+  // truss arm to spine
+  const ax0=Math.min(side==='L'?x+w:x, spineEdge), ax1=Math.max(side==='L'?x+w:x, spineEdge);
+  R(bctx,ax0,armY-1.5,ax1-ax0,3,'#2b1c47');
+  for(let ax=ax0+4;ax<ax1-3;ax+=8)R(bctx,ax,armY-3,1.5,7,'#3a2a5e');
+  // central spar of the solar wing
+  const sparX=x+w*0.47;
+  R(bctx,sparX,y,w*0.06,h*0.58,'#2b1c47');
+  // solar panels either side of the spar
+  const rows=Math.max(2,Math.floor(h*0.58/(W*0.075)));
+  for(let i=0;i<rows;i++){
+    const py=y+i*(h*0.58/rows)+2, ph=h*0.58/rows-4;
+    for(const px of [x+w*0.04, sparX+w*0.06+2]){
+      const pw=(sparX-2)-(x+w*0.04);
+      vgrad(bctx,px,py,pw,ph,'#14224a','#0e1836');
+      bctx.strokeStyle='rgba(77,140,255,.35)';bctx.lineWidth=1;
+      bctx.strokeRect(px+0.5,py+0.5,pw-1,ph-1);
+      for(let gx=px+pw/3;gx<px+pw;gx+=pw/3)R(bctx,gx,py,1,ph,'rgba(77,140,255,.18)');
+      R(bctx,px,py,pw,1,'rgba(120,180,255,.25)'); // sheen
+    }
+  }
+  R(bctx,x+w*0.02,y-2,w*0.96,2,'#3a2a5e'); // top rail
+  // hydroponics pod hanging below the wing
+  const podY=y+h*0.64, podH=h*0.34, podX=x+w*0.24, podW=w*0.52;
+  bctx.fillStyle='#182a20';rr(bctx,podX,podY,podW,podH,podH*0.42);bctx.fill();
+  bctx.strokeStyle='#2f4a3a';bctx.lineWidth=2;rr(bctx,podX,podY,podW,podH,podH*0.42);bctx.stroke();
+  // glowing plants inside
+  for(let i=0;i<4;i++){const gx=podX+podW*(0.18+i*0.21), gyb=podY+podH*0.72;
+    R(bctx,gx-1,gyb-podH*0.3,2,podH*0.3,'#2e7d3e');
+    bctx.fillStyle='rgba(90,255,140,.85)';bctx.beginPath();bctx.arc(gx,gyb-podH*0.32,2.2,0,7);bctx.fill();}
+  bctx.fillStyle='rgba(90,255,140,.10)';bctx.fillRect(podX+3,podY+3,podW-6,podH*0.5);
+  // small dish on top of the wing
+  const dx=x+w*0.80, dy=y+h*0.06;
+  bctx.strokeStyle='#3a2a5e';bctx.lineWidth=2;bctx.beginPath();bctx.arc(dx,dy,w*0.07,0.7,3.6);bctx.stroke();
+  R(bctx,dx-1,dy,2,h*0.10,'#3a2a5e');
 }
 
 function drawSpace(){
