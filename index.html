@@ -208,7 +208,7 @@ async function boot(){
 }
 
 /* ============ layout: packed bento floor plan (fits the viewport) ============ */
-let HULLX=0, HULLW=0, HULLY=0;
+let HULLX=0, HULLW=0, HULLY=0, SHAFTX=0, SHAFTW=0, SHAFTCX=0, SHAFT_TOP=0, SHAFT_BOT=0;
 function layout(){
   W=stage.clientWidth;
   // fit the whole station between the header and the feed dock — no scrolling
@@ -218,23 +218,32 @@ function layout(){
   const avail=Math.max(360, vh - stageTop - dockH - 20);
   const margin=Math.round(avail*0.022);
   HULLX=5; HULLW=W-10; HULLY=margin;
+  // central lift shaft runs down the middle; rooms dock on either side of it
+  SHAFTW=Math.round(W*0.09); SHAFTCX=Math.round(W/2); SHAFTX=SHAFTCX-Math.round(SHAFTW/2);
   const bandsTotal=avail-2*margin;
   const hfSum=BANDS.reduce((a,b)=>a+b.hf,0);
   rooms={};
-  let y=HULLY, used=0;
+  let y=HULLY, lastFeetY=HULLY;
   BANDS.forEach((band,bi)=>{
     const last=(bi===BANDS.length-1);
     const bh=last ? (HULLY+bandsTotal-y) : Math.round(bandsTotal*band.hf/hfSum);
-    let x=HULLX;
-    band.cols.forEach(([id,wf],i)=>{
-      const lastCol=(i===band.cols.length-1);
-      const w=lastCol ? (HULLX+HULLW-x) : Math.round(HULLW*wf);
-      rooms[id]={x,y,w,h:bh,feetY:y+bh-7,cx:x+w/2,
-        walkMin:x+w*0.13,walkMax:x+w*0.87,amb:{}};
-      x+=w;
-    });
+    const feetY=y+bh-7; lastFeetY=feetY;
+    if(band.cols.length===1){
+      const id=band.cols[0][0];
+      rooms[id]={x:HULLX,y,w:HULLW,h:bh,feetY,cx:HULLX+HULLW/2,side:'top',
+        doorX:SHAFTCX,walkMin:HULLX+HULLW*0.10,walkMax:HULLX+HULLW*0.90,amb:{}};
+    }else{
+      const lid=band.cols[0][0], rid=band.cols[1][0];
+      const lw=SHAFTX-HULLX, rw=(HULLX+HULLW)-(SHAFTX+SHAFTW);
+      rooms[lid]={x:HULLX,y,w:lw,h:bh,feetY,cx:HULLX+lw/2,side:'L',
+        doorX:SHAFTX-Math.round(lw*0.10),walkMin:HULLX+lw*0.13,walkMax:SHAFTX-lw*0.10,amb:{}};
+      rooms[rid]={x:SHAFTX+SHAFTW,y,w:rw,h:bh,feetY,cx:SHAFTX+SHAFTW+rw/2,side:'R',
+        doorX:SHAFTX+SHAFTW+Math.round(rw*0.10),walkMin:SHAFTX+SHAFTW+rw*0.10,walkMax:SHAFTX+SHAFTW+rw*0.87,amb:{}};
+    }
     y+=bh;
   });
+  SHAFT_TOP=rooms.general.feetY-4;         // lift serves from General's deck…
+  SHAFT_BOT=lastFeetY+6;                    // …down to the bottom floor
   H=Math.round(y+margin);
   stage.style.height=H+'px';
   dpr=Math.min(window.devicePixelRatio||1,2);
@@ -267,10 +276,45 @@ function drawBackground(){
   R(bctx,HULLX-3,HULLY-3,HULLW+6,H-HULLY-W*0.02,'#0c0820');
   bctx.strokeStyle='#2b1c47';bctx.lineWidth=3;bctx.strokeRect(HULLX-2.5,HULLY-2.5,HULLW+5,H-HULLY-W*0.02-1);
   AGENTS.forEach(a=>{const r=rooms[a.id];if(r)drawRoom(a,r);});
+  drawShaft();
   // hull edge neon
   bctx.save();bctx.shadowColor='#b026ff';bctx.shadowBlur=7;
   bctx.strokeStyle='rgba(176,38,255,.5)';bctx.lineWidth=1.5;
   bctx.strokeRect(HULLX-2.5,HULLY-2.5,HULLW+5,H-HULLY-W*0.02-1);bctx.restore();
+}
+
+/* central lift shaft + a sliding door on every room's shaft-facing wall */
+const DOOR_H_FRAC=0.34;   // door opening height as a fraction of walk headroom
+function drawShaft(){
+  const x=SHAFTX, w=SHAFTW, top=SHAFT_TOP-6, bot=SHAFT_BOT+8;
+  // shaft interior
+  vgrad(bctx,x,top,w,bot-top,'#0e0a1c','#080512');
+  R(bctx,x,top,1.5,bot-top,'#241a3d');R(bctx,x+w-1.5,top,1.5,bot-top,'#241a3d');
+  // guide rails + counterweight cable
+  R(bctx,x+3,top,1.5,bot-top,'#1a1330');R(bctx,x+w-4.5,top,1.5,bot-top,'#1a1330');
+  R(bctx,x+w/2-0.5,top,1,bot-top,'rgba(45,226,230,.18)');
+  // floor stops + call panels at each level
+  AGENTS.forEach(a=>{const r=rooms[a.id];if(!r||r.side==='top')return;
+    const ly=r.feetY+3;
+    R(bctx,x+2,ly,w-4,1.5,'rgba(45,226,230,.35)');           // landing line
+    R(bctx,x+w/2-3,ly-4,6,2,'#1a1330');                       // call button housing
+    R(bctx,x+w/2-2,ly-3.4,1.6,1.6,'rgba(57,255,136,.6)');});
+  // shaft header sign + top pulley
+  R(bctx,x-2,top,w+4,5,'#1a1330');R(bctx,x-2,top+5,w+4,1,'rgba(45,226,230,.4)');
+  bctx.fillStyle='#4a3a6a';bctx.beginPath();bctx.arc(SHAFTCX,top+3,2.4,0,7);bctx.fill();
+  // doors: an opening in each room's shaft-facing wall
+  AGENTS.forEach(a=>{const r=rooms[a.id];if(!r)return;
+    const dh=(r.h*0.66)*DOOR_H_FRAC+r.h*0.10, dy=r.feetY+4-dh;
+    let dx;
+    if(r.side==='L') dx=SHAFTX-2; else if(r.side==='R') dx=SHAFTX+SHAFTW-3; else return;
+    const dw=5;
+    R(bctx,dx,dy,dw,dh,'#060410');                            // dark opening
+    bctx.save();bctx.shadowColor='#2de2e6';bctx.shadowBlur=5;
+    R(bctx,dx,dy,dw,1.5,'#2de2e6');                            // lintel light
+    R(bctx,r.side==='L'?dx:dx+dw-1.5,dy,1.5,dh,'rgba(45,226,230,.6)');
+    bctx.restore();
+    R(bctx,dx+dw/2-0.4,dy+1.5,0.8,dh-1.5,'rgba(45,226,230,.25)'); // door seam
+  });
 }
 
 function drawSpace(){
@@ -678,6 +722,16 @@ function nameTag(ctx,cx,feetY,s,name,label,stHex){
   if(label){ctx.font='600 7px ui-monospace,monospace';ctx.fillStyle=stHex;ctx.textAlign='center';
     ctx.fillText(label,x+w/2,y+11);}
 }
+/* lift car drawn on the fg around whoever is riding the shaft */
+function drawLiftCar(cy){
+  const carH=Math.max(18,W*0.048), x=SHAFTX+2, w=SHAFTW-4, y=cy-carH+7;
+  R(fctx,SHAFTCX-0.5,SHAFT_TOP-6,1,Math.max(0,y-(SHAFT_TOP-6)),'rgba(180,170,220,.35)');   // cable
+  fctx.fillStyle='#171125';rr(fctx,x,y,w,carH,3);fctx.fill();
+  fctx.save();fctx.shadowColor='#2de2e6';fctx.shadowBlur=6;
+  fctx.strokeStyle='rgba(45,226,230,.7)';fctx.lineWidth=1.2;rr(fctx,x+0.6,y+0.6,w-1.2,carH-1.2,3);fctx.stroke();fctx.restore();
+  R(fctx,x+2,y+1.5,w-4,1,'#2de2e6');                                          // top light
+  R(fctx,SHAFTCX-0.4,y+2,0.8,carH-4,'rgba(45,226,230,.3)');                   // door seam
+}
 /* canvas speech bubble (used for completion "Done!" pops above a room) */
 function speechBubble(ctx,cx,baseY,text,accent,alpha){
   ctx.save();ctx.globalAlpha=alpha;
@@ -772,7 +826,7 @@ function stepVisitor(dt,time,s){
     const vr=rooms[va.id], hr=rooms[hb.id];
     visitor={id:va.id,host:hb.id,homeX:actors[va.id].x,seg:0,state:'out',t:0,
       x:actors[va.id].x,y:vr.feetY,facing:1,
-      path:[{x:hr.cx+hr.w*0.12,y:vr.feetY},{x:hr.cx+hr.w*0.12,y:hr.feetY}]};
+      path:shaftRoute(vr,actors[va.id].x, hr, hr.cx+hr.w*0.12)};
     return;
   }
   const v=visitor, speed=W*0.22;
@@ -785,7 +839,7 @@ function stepVisitor(dt,time,s){
         fctx.fillStyle=on?'rgba(239,234,255,.85)':'rgba(239,234,255,.25)';
         fctx.fillRect(px-4+i*4,py,2.2,2.2);}}
     if(v.t>4){v.state='back';v.seg=0;
-      v.path=[{x:v.x,y:rooms[v.id].feetY},{x:v.homeX,y:rooms[v.id].feetY}];}
+      v.path=shaftRoute(rooms[v.host],v.x, rooms[v.id], v.homeX);}
     return;
   }
   const tgt=v.path[v.seg];
@@ -798,11 +852,22 @@ function stepVisitor(dt,time,s){
   }else{v.x+=dx/dist*step;v.y+=dy/dist*step;if(Math.abs(dx)>1)v.facing=dx>0?1:-1;}
 }
 
-/* General floats down the spine on a hover platform, then through the tube */
+/* Build a wall-respecting route: exit source room via its door -> ride the
+   central lift -> enter target room via its door -> approach a spot inside it.
+   Horizontal moves stay within a room or the shaft; vertical moves only in the
+   shaft — so agents never cut through walls. */
+function shaftRoute(fromRoom, fromX, toRoom, toX){
+  const p=[];
+  if(fromRoom.side!=='top' && Math.abs(fromX-fromRoom.doorX)>1) p.push({x:fromRoom.doorX,y:fromRoom.feetY});
+  p.push({x:SHAFTCX,y:fromRoom.feetY});            // step into the lift
+  if(Math.abs(fromRoom.feetY-toRoom.feetY)>1) p.push({x:SHAFTCX,y:toRoom.feetY}); // ride
+  if(toRoom.side!=='top') p.push({x:toRoom.doorX,y:toRoom.feetY});               // step out the door
+  p.push({x:toX,y:toRoom.feetY});                  // approach the spot
+  return p;
+}
 function planWalk(ev){
   const tr=rooms[ev.to]; if(!tr)return false;
-  // L-path: walk across General's deck to the target column, then descend
-  walker.path=[{x:tr.cx,y:rooms.general.feetY},{x:tr.cx,y:tr.feetY}];
+  walker.path=shaftRoute(rooms.general, walker.x, tr, tr.cx);
   walker.seg=0;walker.state='out';walker.task=ev;
   return true;
 }
@@ -818,8 +883,8 @@ function stepWalker(dt){
   if(walker.state==='visit'){
     walker.t-=dt;
     if(walker.t<=0){
-      const gr=rooms.general;
-      walker.path=[{x:walker.x,y:gr.feetY},{x:gr.cx,y:gr.feetY}];
+      const tr=rooms[walker.task.to];
+      walker.path=shaftRoute(tr, walker.x, rooms.general, rooms.general.cx);
       walker.seg=0;walker.state='back';
     }
     return;
@@ -954,8 +1019,10 @@ function loop(ts){
   if(visitor){ // draw the travelling visitor (skipped in the normal loop below)
     const va=byId[visitor.id]||{};
     const vmoving=visitor.state!=='stay';
-    const vbob=vmoving?Math.abs(Math.sin(time*9))*1.3:0;
-    drawChar(fctx,visitor.x,visitor.y-vbob,s,visitor.id,vmoving,time*11,visitor.facing,false,time,3.1);
+    const vInShaft=vmoving&&Math.abs(visitor.x-SHAFTCX)<SHAFTW*0.6;
+    const vbob=(vmoving&&!vInShaft)?Math.abs(Math.sin(time*9))*1.3:0;
+    if(vInShaft)drawLiftCar(visitor.y);
+    drawChar(fctx,visitor.x,visitor.y-vbob,s,visitor.id,vmoving&&!vInShaft,time*11,visitor.facing,false,time,3.1);
     nameTag(fctx,visitor.x,visitor.y-vbob,s,va.name||visitor.id,va.statusLabel||'',DOT_HEX[va.status||'idle']);
   }
   AGENTS.forEach(a=>{
@@ -982,24 +1049,10 @@ function loop(ts){
 
   stepWalker(dt);
   const moving=walker.state==='out'||walker.state==='back';
-  const seg=walker.path&&walker.path[walker.seg];
-  const descending=moving&&seg&&Math.abs(seg.y-walker.y)>Math.abs(seg.x-walker.x)&&Math.abs(seg.y-walker.y)>2;
-  const wbob=descending?Math.sin(time*3)*2:(moving?Math.abs(Math.sin(time*10))*1.5:0);
-  // glowing trail while General travels
-  walker.trail=walker.trail||[];
-  if(moving){walker.trail.push({x:walker.x,y:walker.y-wbob-6});if(walker.trail.length>22)walker.trail.shift();}
-  else if(walker.trail.length)walker.trail.splice(0,2);
-  walker.trail.forEach((p,i)=>{const al=(i/walker.trail.length)*0.4;
-    fctx.fillStyle=`rgba(255,213,46,${al})`;fctx.fillRect(p.x-1.2,p.y-1.2,2.4,2.4);});
-  if(descending){ // hover platform + thruster sparks while moving between decks
-    fctx.save();fctx.shadowColor='#2de2e6';fctx.shadowBlur=8;
-    fctx.fillStyle='rgba(45,226,230,.85)';
-    fctx.beginPath();fctx.ellipse(walker.x,walker.y-wbob+3,s*4,s*1.1,0,0,7);fctx.fill();fctx.restore();
-    fctx.fillStyle=`rgba(45,226,230,${0.4+0.3*Math.sin(time*14)})`;
-    fctx.fillRect(walker.x-s*2.4,walker.y-wbob+5,2,4+2*Math.sin(time*17));
-    fctx.fillRect(walker.x+s*2.4,walker.y-wbob+5,2,4+2*Math.sin(time*15));
-  }
-  drawChar(fctx,walker.x,walker.y-wbob,s*1.1,'general',moving&&!descending,time*11,walker.facing,true,time,0.3);
+  const inShaft=moving&&Math.abs(walker.x-SHAFTCX)<SHAFTW*0.6;
+  const wbob=inShaft?0:(moving?Math.abs(Math.sin(time*10))*1.5:0);
+  if(inShaft)drawLiftCar(walker.y);                 // draw the car around the rider
+  drawChar(fctx,walker.x,walker.y-wbob,s*1.1,'general',moving&&!inShaft,time*11,walker.facing,true,time,0.3);
   {const gi=byId.general||{};nameTag(fctx,walker.x,walker.y-wbob,s*1.1,'General',gi.statusLabel||'',DOT_HEX[gi.status||'active']);}
 
   if(arriveFx){arriveFx.t+=dt;const k=arriveFx.t/0.6;
