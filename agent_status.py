@@ -147,21 +147,35 @@ def read_cron_jobs() -> list[dict]:
     return data if isinstance(data, list) else []
 
 
-# Map a cron job to the agent it belongs to (explicit thread first, then name hints)
+# Map a cron job to the agent that owns it, matched on the job NAME only (the
+# human label reliably names the domain; prompts/commands are noise — a Japanese
+# quiz that "logs to notion" must NOT be attributed to Memory). Checked in order,
+# so put system + narrowly-worded domains first.
 CRON_AGENT_HINTS = [
-    ("reminders",   ["remind", "vitamin", "breakfast", "lunch", "dinner", "todoist"]),
-    ("finance",     ["budget", "finance", "spend", "expense"]),
-    ("memory",      ["notion", "memory", "wiki", "sync"]),
-    ("predictions", ["predict", "forecast", "free models", "model"]),
-    ("books",       ["book", "read"]),
-    ("health",      ["health", "run", "workout", "fitness", "steps"]),
-    ("japanese",    ["japanese", "quiz", "jlpt", "kanji"]),
-    ("coding",      ["deploy", "dashboard", "build", "code"]),
-    ("general",     ["brief", "morning", "daily", "summary"]),
+    ("general",     ["token", "usage", "quota", "api key", "heartbeat", "system health",
+                     "morning brief", "cron", "watchdog"]),
+    ("reminders",   ["remind", "vitamin", "breakfast", "lunch", "dinner", "todoist", "task"]),
+    ("japanese",    ["japanese", "jlpt", "kanji", "vocab", "quiz", "n4", "n5", "hiragana", "katakana"]),
+    ("finance",     ["budget", "finance", "spend", "expense", "invoice", "cost", "portfolio"]),
+    ("memory",      ["notion", "wiki", "digest", "archive", "memory", "sync"]),
+    ("predictions", ["predict", "forecast", "free model", "trend", "horoscope", "outlook"]),
+    ("books",       ["book", "ebook", "audiobook", "library", "reading"]),
+    ("health",      ["workout", "fitness", "steps", "exercise", "gym", "5k", "10k",
+                     "calorie", "vitals", "sleep", "health"]),
+    ("coding",      ["deploy", "dashboard", "build", "commit", "git", "ci ", "coding", "backup"]),
 ]
 
 
+def _job_name(job: dict) -> str:
+    return " ".join(str(job.get(k, "")) for k in ("name", "title", "label")).lower()
+
+
 def _job_agent(job: dict) -> str:
+    text = _job_name(job)
+    for aid, kws in CRON_AGENT_HINTS:
+        if any(k in text for k in kws):
+            return aid
+    # fallback only when the name gives nothing: an explicit thread field
     for k in ("thread_id", "thread", "topic"):
         if k in job:
             try:
@@ -171,13 +185,6 @@ def _job_agent(job: dict) -> str:
                         return a["id"]
             except (ValueError, TypeError):
                 pass
-    # match against the job's name/title/desc only (NOT raw JSON — field names
-    # like "next_run" would falsely match hints such as "run")
-    text = " ".join(str(job.get(k, "")) for k in
-                    ("name", "title", "description", "prompt", "command")).lower()
-    for aid, kws in CRON_AGENT_HINTS:
-        if any(k in text for k in kws):
-            return aid
     return "general"
 
 
