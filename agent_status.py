@@ -147,20 +147,63 @@ def read_cron_jobs() -> list[dict]:
     return data if isinstance(data, list) else []
 
 
-def _running_cron_threads(jobs: list[dict]) -> set[int]:
-    """Return threads that currently have a *running* cron job."""
-    running: set[int] = set()
-    for job in jobs:
-        state = str(job.get("state", job.get("status", ""))).lower()
-        if state not in ("running", "active", "working") and job.get("running") is not True:
+# Map a cron job to the agent it belongs to (explicit thread first, then name hints)
+CRON_AGENT_HINTS = [
+    ("reminders",   ["remind", "vitamin", "breakfast", "lunch", "dinner", "todoist"]),
+    ("finance",     ["budget", "finance", "spend", "expense"]),
+    ("memory",      ["notion", "memory", "wiki", "sync"]),
+    ("predictions", ["predict", "forecast", "free models", "model"]),
+    ("books",       ["book", "read"]),
+    ("health",      ["health", "run", "workout", "fitness", "steps"]),
+    ("japanese",    ["japanese", "quiz", "jlpt", "kanji"]),
+    ("coding",      ["deploy", "dashboard", "build", "code"]),
+    ("general",     ["brief", "morning", "daily", "summary"]),
+]
+
+
+def _job_agent(job: dict) -> str:
+    for k in ("thread_id", "thread", "topic"):
+        if k in job:
+            try:
+                th = int(str(job[k]).lstrip("t"))
+                for a in AGENTS:
+                    if a["thread"] == th and not a.get("sharesThreadWithGeneral"):
+                        return a["id"]
+            except (ValueError, TypeError):
+                pass
+    # match against the job's name/title/desc only (NOT raw JSON — field names
+    # like "next_run" would falsely match hints such as "run")
+    text = " ".join(str(job.get(k, "")) for k in
+                    ("name", "title", "description", "prompt", "command")).lower()
+    for aid, kws in CRON_AGENT_HINTS:
+        if any(k in text for k in kws):
+            return aid
+    return "general"
+
+
+def get_cron() -> dict:
+    """Cron jobs grouped by agent id (tolerant of jobs.json field naming):
+    {agent: [{name, schedule, next, last, running, enabled}]}"""
+    out: dict[str, list] = {}
+    for j in read_cron_jobs():
+        if not isinstance(j, dict):
             continue
-        for key in ("thread_id", "thread", "topic"):
-            if key in job:
-                try:
-                    running.add(int(str(job[key]).lstrip("t")))
-                except (ValueError, TypeError):
-                    pass
-    return running
+        name = str(j.get("name") or j.get("title") or j.get("id") or "job")[:60]
+        sched = str(j.get("schedule") or j.get("cron") or j.get("interval")
+                    or j.get("when") or "")[:40]
+        nxt = _to_epoch(j.get("next_run") or j.get("nextRun") or j.get("next")
+                        or j.get("next_run_at"))
+        last = _to_epoch(j.get("last_run") or j.get("lastRun") or j.get("last")
+                         or j.get("last_run_at"))
+        state = str(j.get("state", j.get("status", ""))).lower()
+        running = state in ("running", "active", "working") or j.get("running") is True
+        enabled = bool(j.get("enabled", True))
+        out.setdefault(_job_agent(j), []).append({
+            "name": name, "schedule": sched,
+            "next": nxt or None, "last": last or None,
+            "running": running, "enabled": enabled,
+        })
+    return out
 
 
 # --------------------------------------------------------------------------
@@ -253,7 +296,7 @@ def get_agents() -> list[dict]:
         finally:
             con.close()
 
-    running_cron = _running_cron_threads(read_cron_jobs())
+    cron_map = get_cron()
 
     # most recent delegation per target agent -> (ts, reason)
     deleg_last: dict[str, tuple[float, str]] = {}
@@ -272,12 +315,16 @@ def get_agents() -> list[dict]:
         candidates = [t for t in (base, dl_ts) if t is not None]
         last_t = max(candidates) if candidates else None
         age = (now - last_t) if last_t else None
-        working = (th in running_cron) and not shared
+        my_cron = cron_map.get(a["id"], [])
+        running_job = next((j for j in my_cron if j["running"]), None)
+        working = running_job is not None
         has_open = (th in open_threads) and not shared
         status, label = _status(age, working, has_open, a.get("alwaysOnline", False))
         # what the agent is currently on (drives room sheet + reply context)
         current_task = ""
-        if dl and (status == "working" or (age is not None and age < DORMANT_WINDOW)):
+        if running_job:
+            current_task = f"⏰ {running_job['name']}"
+        elif dl and (status == "working" or (age is not None and age < DORMANT_WINDOW)):
             current_task = dl[1]
         result.append({
             **a,
@@ -443,8 +490,23 @@ def get_thread_messages(thread: int, limit: int = 30) -> list[dict]:
 
 
 def get_feed(limit: int = 15) -> list[dict]:
-    """Village feed: each delegation (General's TLDR) plus the target agent's
-    first assistant reply after the delegation, if any."""
+    """Village feed: delegations (General's TLDR + the target agent's first
+    reply after it) merged with cron runs ('agent ran job') in time order."""
+    delegs = _feed_delegations(limit)
+    # cron runs: one line per (job, last run) — just what ran, not the result
+    for aid, jobs in get_cron().items():
+        for j in jobs:
+            if j.get("last"):
+                delegs.append({
+                    "id": f"cron-{aid}-{j['name'][:24]}-{int(j['last'])}",
+                    "type": "cron", "to": aid, "from": "cron",
+                    "reason": j["name"], "ts": j["last"], "reply": None,
+                })
+    delegs.sort(key=lambda e: e["ts"])
+    return delegs[-limit:]
+
+
+def _feed_delegations(limit: int = 15) -> list[dict]:
     delegs = get_delegations(limit)
     con = _connect()
     if con is None:
@@ -487,7 +549,12 @@ def get_watermark() -> str:
     try:
         msg_max = con.execute("SELECT MAX(id) FROM messages").fetchone()[0] or 0
         sess_cnt = con.execute("SELECT COUNT(*) FROM sessions").fetchone()[0] or 0
-        return f"{msg_max}:{sess_cnt}"
+        # include jobs.json mtime so cron firings push live updates too
+        try:
+            cron_m = int(CRON_JOBS_PATH.stat().st_mtime)
+        except OSError:
+            cron_m = 0
+        return f"{msg_max}:{sess_cnt}:{cron_m}"
     except sqlite3.Error:
         return "0:0"
     finally:

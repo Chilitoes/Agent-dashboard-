@@ -68,6 +68,12 @@ async def api_diagnostics() -> JSONResponse:
     return JSONResponse(agent_status.diagnostics())
 
 
+@app.get("/api/cron")
+async def api_cron() -> JSONResponse:
+    """Cron jobs grouped by agent: schedule, next/last run, running flag."""
+    return JSONResponse({"cron": agent_status.get_cron()})
+
+
 @app.get("/api/feed")
 async def api_feed(limit: int = 15) -> JSONResponse:
     """Village feed: delegations + the target agent's first reply after each."""
