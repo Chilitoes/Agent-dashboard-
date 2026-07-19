@@ -369,6 +369,46 @@ function drawWindows(id,x,y,w,wy,wh,lit,neon){
 const ROOMWIN={general:'wide',finance:'arch',memory:'slits',reminders:'squares',
   predictions:'round',books:'arch',health:'squares',japanese:'porthole',coding:'slits'};
 
+/* ===== density layers (drawn on the bg canvas — only on status change) ===== */
+function ceilingRig(x,y,w,h,neon,lit){
+  R(bctx,x+3,y+3.5,w-6,2,'#191227');                                  // truss beam
+  for(let bx=x+8;bx<x+w-8;bx+=9)R(bctx,bx,y+3.5,1,3.5,'#2b1c47');     // truss ticks
+  R(bctx,x+4,y+3,w*0.16,3.5,'#221838');R(bctx,x+w-4-w*0.16,y+3,w*0.16,3.5,'#221838'); // corner ducts
+  for(const fx of [0.24,0.5,0.76]){const hx=x+w*fx, dl=h*0.09;        // hanging fixtures
+    R(bctx,hx,y+5,1,dl,'#241a3d');R(bctx,hx-2.5,y+5+dl,5,2.5,'#141020');
+    if(lit>0.4){bctx.save();bctx.shadowColor=neon;bctx.shadowBlur=5;R(bctx,hx-2.5,y+5+dl,5,1,rgba(neon,0.55));bctx.restore();}}
+}
+function backMachinery(x,y,w,floorTop,neon,lit){
+  const H=floorTop-y;
+  for(const[fy,pc] of [[0.46,'#2a2038'],[0.60,'#211934']]){          // horizontal pipes
+    const py=y+H*fy;R(bctx,x+4,py,w-8,2.5,pc);R(bctx,x+4,py,w-8,0.8,'rgba(255,255,255,.06)');
+    for(let px=x+14;px<x+w-12;px+=24)R(bctx,px,py-1,3,4.5,'#141020');}
+  bctx.strokeStyle=rgba(neon,0.14);bctx.lineWidth=1;                  // draped cable
+  bctx.beginPath();bctx.moveTo(x+w*0.12,y+H*0.4);
+  bctx.quadraticCurveTo(x+w*0.32,y+H*0.58,x+w*0.52,y+H*0.44);bctx.stroke();
+  for(const fx of [0.14,0.86]){const gx=x+w*fx,gy=y+H*0.72;           // gauges / panels
+    R(bctx,gx-4.5,gy-4,9,8,'#0d0a1a');R(bctx,gx-4.5,gy-4,9,1,'#241a3d');
+    if(lit>0.4){bctx.fillStyle=rgba(neon,0.7);bctx.beginPath();bctx.arc(gx-1.5,gy,1.4,0,7);bctx.fill();
+      R(bctx,gx+1,gy-2,2.5,1,rgba(neon,0.5));R(bctx,gx+1,gy+1,2,1,'rgba(120,130,160,.5)');}}
+}
+function floorDetail(x,floorTop,w,bottom,inset,neon,lit){
+  // glowing center seam (perspective)
+  bctx.strokeStyle=rgba(neon,0.18+0.2*lit);bctx.lineWidth=1.5;
+  bctx.beginPath();bctx.moveTo(x+w/2,floorTop);bctx.lineTo(x+w/2,bottom);bctx.stroke();
+  // intersection glow dots
+  for(let ri=1;ri<4;ri++){const t=ri/4, yy=floorTop+(bottom-floorTop)*t;
+    for(let ci=1;ci<5;ci++){const fx0=x+inset+((w-2*inset)/5)*ci, bx0=x+(w/5)*ci;
+      const px=fx0+(bx0-fx0)*t;R(bctx,px-0.5,yy-0.5,1.5,1.5,rgba(neon,0.12+0.12*lit));}}
+  // hazard chevrons across the front lip
+  for(let cx2=x+inset;cx2<x+w-inset-6;cx2+=11)R(bctx,cx2,bottom-4,5,2.5,'rgba(255,213,46,.22)');
+}
+function foreRail(x,y,w,h,neon,lit){
+  const ry=y+h-6;
+  R(bctx,x+2,ry,w-4,3,'#0b0816');                                    // rail bar
+  R(bctx,x+2,ry,w-4,1,rgba(neon,0.35+0.25*lit));
+  for(let px=x+6;px<x+w-4;px+=Math.max(14,w*0.11))R(bctx,px,ry+3,1.5,3,'#1a1330'); // posts
+}
+
 function drawRoom(a,r){
   const st=(byId[a.id]||{}).status||'offline', lit=litFactor(st), neon=a.neon;
   const {x,y,w,h}=r;
@@ -377,11 +417,13 @@ function drawRoom(a,r){
   // back wall + per-room material
   vgrad(bctx,x,y,w,floorTop-y,dim(neon,0.11+0.05*lit),dim(neon,0.05));
   wallTex(a.id,x,y,w,floorTop-y);
+  backMachinery(x,y,w,floorTop,neon,lit);
   // per-room windows
   const wy=y+h*0.15, wh=Math.min(h*0.22,26);
   drawWindows(a.id,x,y,w,wy,wh,lit,neon);
   // ceiling fixture + light cone
   R(bctx,x,y,w,3,'#0c0818');
+  ceilingRig(x,y,w,h,neon,lit);
   if(lit>0.4){
     const lw=w*0.32, lx=x+w/2-lw/2;
     bctx.save();bctx.shadowColor=neon;bctx.shadowBlur=8;R(bctx,lx,y+3,lw,2,neon);bctx.restore();
@@ -405,11 +447,19 @@ function drawRoom(a,r){
   for(let i=1;i<5;i++){const fx=x+inset+((w-2*inset)/5)*i, bx2=x+(w/5)*i;
     bctx.beginPath();bctx.moveTo(fx,floorTop);bctx.lineTo(bx2,y+h);bctx.stroke();}
   R(bctx,x,floorTop-1,w,1,'rgba(0,0,0,.35)');
+  floorDetail(x,floorTop,w,y+h,inset,neon,lit);
+  // conveyor belt track along the back of the floor (crates animate on fg)
+  const beltY=floorTop+(y+h-floorTop)*0.30, beltX0=x+inset*0.6, beltX1=x+w-inset*0.6;
+  R(bctx,beltX0,beltY,beltX1-beltX0,4.5,'#12101e');
+  R(bctx,beltX0,beltY,beltX1-beltX0,1,rgba(neon,0.28));
+  for(let bx2=beltX0+3;bx2<beltX1;bx2+=6)R(bctx,bx2,beltY+4.5,1.4,2,'#241a3d');
+  r.amb.beltY=beltY;r.amb.beltX0=beltX0;r.amb.beltX1=beltX1;
   // shaded side walls (depth)
-  vgrad(bctx,x,y,6,h,'rgba(0,0,0,.38)','rgba(0,0,0,.18)');
-  vgrad(bctx,x+w-6,y,6,h,'rgba(0,0,0,.38)','rgba(0,0,0,.18)');
+  vgrad(bctx,x,y,6,h,'rgba(0,0,0,.4)','rgba(0,0,0,.2)');
+  vgrad(bctx,x+w-6,y,6,h,'rgba(0,0,0,.4)','rgba(0,0,0,.2)');
   // per-agent interior
   (INTERIORS[a.id]||(()=>{}))(r,lit,neon,r.amb);
+  foreRail(x,y,w,h,neon,lit);
   /* --- beveled frame (extruded look) --- */
   R(bctx,x,y,w,2,'rgba(255,255,255,.06)');           // top edge catches light
   R(bctx,x,y+h-2,w,2,'rgba(0,0,0,.45)');             // bottom edge in shadow
@@ -790,6 +840,7 @@ function stepWalker(dt){
 }
 
 /* ============ ambient animation (fg) ============ */
+const CRATE_COLS=['#4dc9ff','#ffd52e','#ff7847','#39ff88','#e935c1'], CRATE_HI='rgba(255,255,255,.25)';
 function drawAmbient(t,s){
   const A=id=>((byId[id]||{}).status)||'offline';
   // twinkling stars
@@ -809,6 +860,17 @@ function drawAmbient(t,s){
     const r=rooms[a.id]; if(!r)return;
     const st=A(a.id); if(litFactor(st)<0.3)return;
     const m=r.amb||{};
+    // conveyor crates gliding along the back belt (faster when the agent works)
+    if(m.beltY!=null){
+      const bw=m.beltX1-m.beltX0, n=Math.max(2,Math.floor(bw/42));
+      const spd=(st==='working')?22:9;
+      const cols=CRATE_COLS;
+      for(let i=0;i<n;i++){
+        const px=m.beltX0+((t*spd+i*bw/n)%bw);
+        fctx.fillStyle=cols[i%cols.length];fctx.fillRect(px,m.beltY-3.6,4.6,3.6);
+        fctx.fillStyle=CRATE_HI;fctx.fillRect(px,m.beltY-3.6,4.6,0.9);
+      }
+    }
     switch(a.id){
       case 'general':{
         if(m.radarX){fctx.strokeStyle=`rgba(255,213,46,${0.4+0.2*Math.sin(t*2)})`;fctx.lineWidth=1;
