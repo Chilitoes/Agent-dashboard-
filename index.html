@@ -173,6 +173,10 @@ const replyByAgent={};   // agent id -> {content, ts} latest real reply from its
 const ACKS=['On it! 👍','Got it — right away.','Consider it done ✅','Roger that!',
   'Leave it to me.','Copy that — starting now.','Sure thing!','Taking care of it 🔧'];
 function ackFor(id){let h=0;for(const c of String(id))h=(h*31+c.charCodeAt(0))>>>0;return ACKS[h%ACKS.length];}
+const DONES=['Done ✅','All set!','Finished 👍','Wrapped up ✨','Task complete','Sorted!',
+  'Handled it ✅','That’s done!','Complete 🎉'];
+function doneFor(id){let h=7;for(const c of String(id))h=(h*33+c.charCodeAt(0))>>>0;return DONES[h%DONES.length];}
+const doneBubble={};   // id -> {text, until(ms)}  completion speech bubbles
 
 let AGENTS=[], byId={}, rooms={};
 let W=0,H=0,dpr=1, spineX=0, spineW=0, spineTop=0, spineBot=0;
@@ -624,6 +628,21 @@ function nameTag(ctx,cx,feetY,s,name,label,stHex){
   if(label){ctx.font='600 7px ui-monospace,monospace';ctx.fillStyle=stHex;ctx.textAlign='center';
     ctx.fillText(label,x+w/2,y+11);}
 }
+/* canvas speech bubble (used for completion "Done!" pops above a room) */
+function speechBubble(ctx,cx,baseY,text,accent,alpha){
+  ctx.save();ctx.globalAlpha=alpha;
+  ctx.font='700 9px ui-monospace,monospace';
+  const tw=Math.min(ctx.measureText(text).width, W*0.44), pad=7, bw=tw+pad*2, bh=18;
+  let x=Math.round(Math.max(HULLX+2,Math.min(HULLX+HULLW-bw-2,cx-bw/2))), y=Math.round(baseY-bh-6);
+  ctx.fillStyle='#f8f4ff';rr(ctx,x,y,bw,bh,5);ctx.fill();
+  ctx.fillStyle=accent;ctx.fillRect(x,y,bw,2);         // colored top accent
+  ctx.fillStyle='#f8f4ff';ctx.beginPath();            // tail
+  ctx.moveTo(cx-4,y+bh-0.5);ctx.lineTo(cx+4,y+bh-0.5);ctx.lineTo(cx,y+bh+5);ctx.closePath();ctx.fill();
+  ctx.save();rr(ctx,x,y,bw,bh,5);ctx.clip();
+  ctx.fillStyle='#17102b';ctx.textAlign='center';ctx.textBaseline='middle';
+  ctx.fillText(text,x+bw/2,y+bh/2+1.5);ctx.restore();
+  ctx.restore();
+}
 
 /* working -> walk to station and stay; idle -> gentle wander; offline -> rest */
 function stepActor(a,o,dt){
@@ -891,6 +910,12 @@ function loop(ts){
     if(working)drawTask(fctx,a.id,o.x,r.feetY-bob,s,time,o.dir);
     nameTag(fctx,o.x,r.feetY-bob,s,a.name,info.statusLabel||'',DOT_HEX[st]);
     fctx.globalAlpha=1;
+    // completion bubble (skip if General is here delivering — his reply bubble covers it)
+    const db=doneBubble[a.id];
+    if(db && ts<db.until && !(walker.state==='visit'&&walker.task&&walker.task.to===a.id)){
+      const left=db.until-ts, al=Math.min(1,left/500);
+      speechBubble(fctx,o.x,r.feetY-bob-19*s,db.text,a.neon||'#39ff88',al);
+    } else if(db && ts>=db.until) delete doneBubble[a.id];
   });
 
   stepWalker(dt);
@@ -953,7 +978,16 @@ function loop(ts){
 /* ============ data / SSE ============ */
 let _agentsSig='', _pingT=null;
 function applyAgents(list){
-  list.forEach(a=>{byId[a.id]={...byId[a.id],...a};});
+  list.forEach(a=>{
+    const prev=(byId[a.id]||{}).status;
+    byId[a.id]={...byId[a.id],...a};
+    // just finished working -> pop a completion bubble (real reply if fresh, else a Done line)
+    if(prev==='working' && a.status && a.status!=='working' && a.id!=='general'){
+      const rb=replyByAgent[a.id];
+      const txt=(rb&&rb.ts>Date.now()/1000-900)?rb.content:doneFor(a.id+(a.currentTask||''));
+      doneBubble[a.id]={text:txt.length>40?txt.slice(0,38)+'…':txt, until:performance.now()+5200};
+    }
+  });
   drawBackground();
   // refresh the feed when statuses/tasks change (covers cron runs appearing)
   const sig=list.map(a=>a.id+a.status+(a.currentTask||'')).join('|');
@@ -1058,14 +1092,14 @@ async function openSheet(id){
       <div class="rep">${esc(replyTxt)}</div></div>`;
   };
   if(a.isHub){
-    // General: his schedule + who he delegated what to (cron runs included)
-    const log=feed.slice().reverse();
+    // General: his schedule + delegation log (oldest→newest, most recent at bottom)
+    const log=feed;   // feed arrives ascending (oldest first)
     sheetChat.innerHTML=schedHtml+'<div class="lbl" style="margin-top:6px">DELEGATION LOG</div>'+
       (log.length?log.map(row).join(''):'<div class="lbl">NO DELEGATIONS YET</div>');
   }else{
-    // Agent: current task + schedule + history (delegations and cron runs)
-    const mine=feed.filter(ev=>ev.to===id).reverse();
-    const curEv=mine[0];
+    // Agent: current task + schedule + history (oldest→newest, most recent at bottom)
+    const mine=feed.filter(ev=>ev.to===id);           // ascending
+    const curEv=mine[mine.length-1];                  // newest
     const working=a.status==='working';
     const curHtml=`<div class="curcard" style="--acc:${acc}">
       <div class="lab" style="color:${acc}">CURRENT TASK</div>
@@ -1079,7 +1113,7 @@ async function openSheet(id){
       '<div class="lbl" style="margin-top:8px">TASK HISTORY</div>'+
       (hist.length?hist.map(row).join(''):'<div class="lbl">NO TASKS YET</div>');
   }
-  sheetChat.scrollTop=0;
+  sheetChat.scrollTop=sheetChat.scrollHeight;   // most recent visible at the bottom
 }
 function closeSheet(){sheet.classList.remove('open');sheetBack.classList.remove('open');}
 sheetBack.addEventListener('click',closeSheet);

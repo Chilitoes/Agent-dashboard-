@@ -319,18 +319,25 @@ def get_agents() -> list[dict]:
         base = None if shared else last_act.get(th)
         dl = deleg_last.get(a["id"])
         dl_ts = dl[0] if dl else None
-        candidates = [t for t in (base, dl_ts) if t is not None]
-        last_t = max(candidates) if candidates else None
-        age = (now - last_t) if last_t else None
         my_cron = cron_map.get(a["id"], [])
         running_job = next((j for j in my_cron if j["running"]), None)
-        working = running_job is not None
+        # a cron firing is real activity — fold its last-run time into freshness
+        cron_ran = [j for j in my_cron if j.get("last")]
+        cron_last_job = max(cron_ran, key=lambda j: j["last"]) if cron_ran else None
+        cron_last = cron_last_job["last"] if cron_last_job else None
+        candidates = [t for t in (base, dl_ts, cron_last) if t is not None]
+        last_t = max(candidates) if candidates else None
+        age = (now - last_t) if last_t else None
+        # working if a job is running now OR one just ran within the window
+        working = (running_job is not None) or (cron_last is not None and now - cron_last <= WORKING_WINDOW)
         has_open = (th in open_threads) and not shared
         status, label = _status(age, working, has_open, a.get("alwaysOnline", False))
         # what the agent is currently on (drives room sheet + reply context)
         current_task = ""
         if running_job:
             current_task = f"⏰ {running_job['name']}"
+        elif cron_last is not None and now - cron_last <= WORKING_WINDOW:
+            current_task = f"⏰ {cron_last_job['name']}"
         elif dl and (status == "working" or (age is not None and age < DORMANT_WINDOW)):
             current_task = dl[1]
         result.append({
