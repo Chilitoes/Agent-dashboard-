@@ -100,6 +100,14 @@
   .cmsg.user{align-self:flex-end;background:#241a42;border:1px solid var(--line)}
   .cmsg.assistant{align-self:flex-start;background:var(--panel2);border:1px solid var(--acc,var(--line))}
   .cmsg .when{display:block;font-size:9px;color:var(--muted);margin-top:3px}
+  /* task-centric room panel */
+  .curcard{border:1px solid var(--acc,var(--line));background:rgba(255,255,255,.025);border-radius:12px;
+    padding:9px 11px;font-size:11.5px;line-height:1.5}
+  .curcard .lab{font-size:9px;font-weight:800;letter-spacing:2px;color:var(--acc,#aaa);margin-bottom:3px}
+  .trow{border:1px solid var(--line);background:var(--panel2);border-radius:11px;padding:8px 10px;font-size:11.5px;line-height:1.45}
+  .trow .meta{display:flex;gap:8px;align-items:center;font-size:9.5px;color:var(--muted);margin-bottom:3px;
+    font-weight:800;letter-spacing:1px}
+  .trow .rep{margin-top:5px;color:#cfc8e8;font-size:11px;border-left:2px solid var(--acc,#555);padding-left:8px}
 </style>
 </head>
 <body>
@@ -151,7 +159,13 @@ const STATION={
   health:{xf:0.24,act:'lift'},     japanese:{xf:0.52,act:'read'},
   coding:{xf:0.18,act:'type'},
 };
-const replyByAgent={};   // agent id -> latest reply text (for the reply bubble)
+const replyByAgent={};   // agent id -> {content, ts} latest real reply from its thread
+
+/* acknowledgment lines used when the agent hasn't written a real reply yet —
+   deterministic per event so bubble and feed always show the same text */
+const ACKS=['On it! 👍','Got it — right away.','Consider it done ✅','Roger that!',
+  'Leave it to me.','Copy that — starting now.','Sure thing!','Taking care of it 🔧'];
+function ackFor(id){let h=0;for(const c of String(id))h=(h*31+c.charCodeAt(0))>>>0;return ACKS[h%ACKS.length];}
 
 let AGENTS=[], byId={}, rooms={};
 let W=0,H=0,dpr=1, spineX=0, spineW=0, spineTop=0, spineBot=0;
@@ -279,19 +293,49 @@ function roomSign(r,name,st,neon){
 function drawRoom(a,r){
   const st=(byId[a.id]||{}).status||'offline', lit=litFactor(st), neon=a.neon;
   const {x,y,w,h}=r;
-  // interior fill (agent-tinted) + floor
-  const floorTop=y+h*0.70;
-  vgrad(bctx,x,y,w,floorTop-y,dim(neon,0.10+0.05*lit),dim(neon,0.05));
-  vgrad(bctx,x,floorTop,w,y+h-floorTop,dim(neon,0.16+0.06*lit),dim(neon,0.06));
-  R(bctx,x,floorTop-1,w,1,'rgba(0,0,0,.35)');
+  /* --- pseudo-3D box: back wall / ceiling cone / perspective floor / shaded side walls --- */
+  const floorTop=y+h*0.66, inset=Math.min(w*0.055,12);
+  // back wall with panel seams
+  vgrad(bctx,x,y,w,floorTop-y,dim(neon,0.11+0.05*lit),dim(neon,0.05));
+  for(let sx2=x+20;sx2<x+w-8;sx2+=26)R(bctx,sx2,y+4,1,floorTop-y-6,'rgba(0,0,0,.15)');
   // window strip near top showing stars
-  const wy=y+h*0.16, wh=Math.min(h*0.24,26);
+  const wy=y+h*0.15, wh=Math.min(h*0.22,26);
   starWindow(x+w*0.06,wy,w*0.88,wh);
   bctx.strokeStyle=lit>0.4?rgba(neon,0.4):'#2b1c47';bctx.lineWidth=1;bctx.strokeRect(x+w*0.06,wy,w*0.88,wh);
   for(let mx=x+w*0.06;mx<x+w*0.94;mx+=w*0.22)R(bctx,mx,wy,1,wh,'rgba(43,28,71,.8)');
+  // ceiling fixture + light cone
+  R(bctx,x,y,w,3,'#0c0818');
+  if(lit>0.4){
+    const lw=w*0.32, lx=x+w/2-lw/2;
+    bctx.save();bctx.shadowColor=neon;bctx.shadowBlur=8;R(bctx,lx,y+3,lw,2,neon);bctx.restore();
+    const g=bctx.createLinearGradient(0,y+5,0,y+h);
+    g.addColorStop(0,rgba(neon,0.09*lit));g.addColorStop(1,'transparent');
+    bctx.fillStyle=g;bctx.beginPath();
+    bctx.moveTo(lx,y+5);bctx.lineTo(lx+lw,y+5);
+    bctx.lineTo(lx+lw+w*0.11,y+h);bctx.lineTo(lx-w*0.11,y+h);bctx.closePath();bctx.fill();
+  }
+  // perspective floor (trapezoid + converging grid)
+  const fgr=bctx.createLinearGradient(0,floorTop,0,y+h);
+  fgr.addColorStop(0,dim(neon,0.15+0.08*lit));fgr.addColorStop(1,dim(neon,0.06+0.04*lit));
+  bctx.fillStyle=fgr;bctx.beginPath();
+  bctx.moveTo(x+inset,floorTop);bctx.lineTo(x+w-inset,floorTop);
+  bctx.lineTo(x+w,y+h);bctx.lineTo(x,y+h);bctx.closePath();bctx.fill();
+  bctx.strokeStyle=`rgba(255,255,255,${0.03+0.045*lit})`;bctx.lineWidth=1;
+  for(let i=1;i<4;i++){const t=i/4;
+    bctx.beginPath();
+    bctx.moveTo(x+inset*(1-t),floorTop+(y+h-floorTop)*t);
+    bctx.lineTo(x+w-inset*(1-t),floorTop+(y+h-floorTop)*t);bctx.stroke();}
+  for(let i=1;i<5;i++){const fx=x+inset+((w-2*inset)/5)*i, bx2=x+(w/5)*i;
+    bctx.beginPath();bctx.moveTo(fx,floorTop);bctx.lineTo(bx2,y+h);bctx.stroke();}
+  R(bctx,x,floorTop-1,w,1,'rgba(0,0,0,.35)');
+  // shaded side walls (depth)
+  vgrad(bctx,x,y,6,h,'rgba(0,0,0,.38)','rgba(0,0,0,.18)');
+  vgrad(bctx,x+w-6,y,6,h,'rgba(0,0,0,.38)','rgba(0,0,0,.18)');
   // per-agent interior
   (INTERIORS[a.id]||(()=>{}))(r,lit,neon,r.amb);
-  // room border (neon)
+  /* --- beveled frame (extruded look) --- */
+  R(bctx,x,y,w,2,'rgba(255,255,255,.06)');           // top edge catches light
+  R(bctx,x,y+h-2,w,2,'rgba(0,0,0,.45)');             // bottom edge in shadow
   bctx.save();bctx.shadowColor=neon;bctx.shadowBlur=lit>0.4?6:0;
   bctx.strokeStyle=rgba(neon,0.55);bctx.lineWidth=1.5;bctx.strokeRect(x+0.75,y+0.75,w-1.5,h-1.5);bctx.restore();
   R(bctx,x,y,w,1,'#0a0614');R(bctx,x,y,1,h,'#0a0614');
@@ -542,7 +586,7 @@ function stepWalker(dt){
   if(dist<=step){
     walker.x=tgt.x;walker.y=tgt.y;walker.seg++;
     if(walker.seg>=walker.path.length){
-      if(walker.state==='out'){walker.state='visit';walker.t=1.7;arriveFx={x:walker.x,y:walker.y,t:0};}
+      if(walker.state==='out'){walker.state='visit';walker.t=3.2;arriveFx={x:walker.x,y:walker.y,t:0};}
       else{walker.state='home';walker.task=null;actors.general.x=walker.x;}
     }
   }else{
@@ -671,6 +715,12 @@ function loop(ts){
   const seg=walker.path&&walker.path[walker.seg];
   const descending=moving&&seg&&Math.abs(seg.y-walker.y)>Math.abs(seg.x-walker.x)&&Math.abs(seg.y-walker.y)>2;
   const wbob=descending?Math.sin(time*3)*2:(moving?Math.abs(Math.sin(time*10))*1.5:0);
+  // glowing trail while General travels
+  walker.trail=walker.trail||[];
+  if(moving){walker.trail.push({x:walker.x,y:walker.y-wbob-6});if(walker.trail.length>22)walker.trail.shift();}
+  else if(walker.trail.length)walker.trail.splice(0,2);
+  walker.trail.forEach((p,i)=>{const al=(i/walker.trail.length)*0.4;
+    fctx.fillStyle=`rgba(255,213,46,${al})`;fctx.fillRect(p.x-1.2,p.y-1.2,2.4,2.4);});
   if(descending){ // hover platform + thruster sparks while moving between decks
     fctx.save();fctx.shadowColor='#2de2e6';fctx.shadowBlur=8;
     fctx.fillStyle='rgba(45,226,230,.85)';
@@ -694,19 +744,23 @@ function loop(ts){
     bubble.style.left=walker.x+'px';bubble.style.top=(walker.y-wbob-15*s)+'px';
   } else bubble.classList.remove('show');
 
-  // Target agent's reply bubble — appears shortly after General arrives
+  // Target agent's reply bubble — a "typing" beat, then its reply.
+  // Real reply from its thread only if newer than this delegation; otherwise a
+  // proper acknowledgment (never echo the task text back).
   if(walker.state==='visit'&&walker.task){
     const to=walker.task.to, tr=rooms[to], toInfo=byId[to]||{};
-    const dwell=1.7-walker.t;                 // seconds since arrival
-    if(tr&&dwell>0.45){
-      const txt=replyByAgent[to]||toInfo.currentTask||'On it…';
+    const dwell=3.2-walker.t;                 // seconds since arrival
+    if(tr&&dwell>0.35){
+      const rb=replyByAgent[to];
+      const real=(rb&&rb.ts>walker.task.ts)?rb.content:null;
+      const txt=dwell<0.95 ? '…' : (real||ackFor(walker.task.id));
       const ax=(actors[to]&&actors[to].x)||tr.cx;
       rbubble.textContent=txt;
       rbubble.style.background=toInfo.neon||'#39ff88';
       rbubble.style.color='#0a0614';
       rbubble.classList.add('show');
       rbubble.style.left=ax+'px';rbubble.style.top=(tr.feetY-16*s)+'px';
-      if(!replyByAgent[to]&&!walker._fetchedReply){walker._fetchedReply=true;loadFeed();}
+      if(!real&&!walker._fetchedReply){walker._fetchedReply=true;loadFeed();}
     } else rbubble.classList.remove('show');
   } else {rbubble.classList.remove('show');if(walker.state!=='visit')walker._fetchedReply=false;}
 
@@ -739,12 +793,16 @@ async function loadFeed(){
     const d=await fetch('api/feed').then(r=>r.json());
     const feed=d.feed||[];
     if(!feed.length){feedEl.innerHTML='<div class="empty-feed">no delegations yet</div>';return;}
-    feed.forEach(ev=>{seenDeleg.add(ev.id); if(ev.reply)replyByAgent[ev.to]=ev.reply.content;});
+    feed.forEach(ev=>{seenDeleg.add(ev.id);
+      if(ev.reply)replyByAgent[ev.to]={content:ev.reply.content,ts:ev.reply.ts};});
+    // feed mirrors the speech bubbles: General's task line + the agent's reply
+    // (real reply if it exists, otherwise the same acknowledgment shown on screen)
     feedEl.innerHTML=feed.map(ev=>{
       const to=byId[ev.to]||{name:ev.to,emoji:'',neon:'#e935c1'};
-      let html=`<div class="msg general"><div class="who">⚙️ GENERAL → ${to.emoji} ${esc((to.name||'').toUpperCase())} <span class="when">${rel(ev.ts)}</span></div>${esc(ev.reason||'delegated a task')}</div>`;
-      if(ev.reply) html+=`<div class="msg agent" style="border-color:${to.neon}66"><div class="who" style="color:${to.neon}">${to.emoji} ${esc((to.name||'').toUpperCase())} <span class="when">${rel(ev.reply.ts)}</span></div>${esc(ev.reply.content)}</div>`;
-      return html;
+      const replyTxt=ev.reply?ev.reply.content:ackFor(ev.id);
+      const replyTs=ev.reply?ev.reply.ts:ev.ts;
+      return `<div class="msg general"><div class="who">⚙️ GENERAL → ${to.emoji} ${esc((to.name||'').toUpperCase())} <span class="when">${rel(ev.ts)}</span></div>${esc(ev.reason||'delegated a task')}</div>`
+        +`<div class="msg agent" style="border-color:${to.neon}66"><div class="who" style="color:${to.neon}">${to.emoji} ${esc((to.name||'').toUpperCase())} <span class="when">${rel(replyTs)}</span></div>${esc(replyTxt)}</div>`;
     }).join('');
     const last=feed[feed.length-1];
     dockLast.textContent=`General → ${(byId[last.to]||{}).name||last.to}: ${last.reason||''}`;
@@ -768,25 +826,42 @@ async function openSheet(id){
     <div><h2>${esc(a.name||id)}</h2>
     <div class="st"><span class="dot" style="background:${DOT_HEX[a.status]||'#4a4560'};box-shadow:0 0 6px ${DOT_HEX[a.status]||'transparent'}"></span>${esc(a.statusLabel||'')} · last: ${esc(last)}</div></div>
     <button class="x" onclick="closeSheet()">✕</button>`;
-  const working=a.status==='working';
-  const doing=working
-    ? (a.currentTask?`Working on: ${esc(a.currentTask)}`:'Working on a task')
-    : (a.status==='active'?'Coordinating the village':`Nothing right now — ${esc(a.statusLabel||'idle')}`);
-  sheetDesc.innerHTML=`<div style="display:flex;gap:7px;align-items:center;margin-bottom:5px">
-      <span style="width:6px;height:6px;border-radius:50%;background:${DOT_HEX[a.status]||'#4a4560'};box-shadow:0 0 6px ${DOT_HEX[a.status]||'transparent'};flex:none"></span>
-      <b style="color:${a.neon||'#efeaff'};letter-spacing:1px;font-size:10px">CURRENTLY</b>
-      <span style="color:#cfc8e8">${doing}</span></div>
-    <div style="opacity:.65">${esc(a.description||'')}</div>`;
+  sheetDesc.innerHTML=`<div style="opacity:.7">${esc(a.description||'')}</div>`;
   sheetChat.innerHTML='<div class="lbl">LOADING…</div>';
   sheet.classList.add('open');sheetBack.classList.add('open');
-  try{
-    const d=await fetch(`api/messages/${a.thread}`).then(r=>r.json());
-    const msgs=d.messages||[];
-    sheetChat.innerHTML='<div class="lbl">INTERNAL CHAT</div>'+(msgs.length?
-      msgs.map(m=>`<div class="cmsg ${m.role==='user'?'user':'assistant'}" style="--acc:${a.neon||'#332552'}66">${esc(m.content)}<span class="when">${rel(m.ts)}</span></div>`).join('')
-      :'<div class="lbl">NO MESSAGES YET</div>');
-    sheetChat.scrollTop=sheetChat.scrollHeight;
-  }catch(err){sheetChat.innerHTML='<div class="lbl">FAILED TO LOAD</div>';}
+  let feed=[];
+  try{feed=(await fetch('api/feed?limit=40').then(r=>r.json())).feed||[];}catch(e){}
+  const acc=a.neon||'#8f86ad';
+  const row=ev=>{
+    const to=byId[ev.to]||{name:ev.to,emoji:'',neon:acc};
+    const replyTxt=ev.reply?ev.reply.content:ackFor(ev.id);
+    return `<div class="trow" style="--acc:${to.neon}">
+      <div class="meta"><span style="color:${to.neon}">→ ${to.emoji} ${esc((to.name||'').toUpperCase())}</span><span>${rel(ev.ts)}</span></div>
+      ${esc(ev.reason||'delegated a task')}
+      <div class="rep">${esc(replyTxt)}</div></div>`;
+  };
+  if(a.isHub){
+    // General: who he delegated what to
+    const log=feed.slice().reverse();
+    sheetChat.innerHTML='<div class="lbl">DELEGATION LOG</div>'+
+      (log.length?log.map(row).join(''):'<div class="lbl">NO DELEGATIONS YET</div>');
+  }else{
+    // Agent: what it is doing now + its task history
+    const mine=feed.filter(ev=>ev.to===id).reverse();
+    const curEv=mine[0];
+    const working=a.status==='working';
+    const curHtml=`<div class="curcard" style="--acc:${acc}">
+      <div class="lab" style="color:${acc}">CURRENT TASK</div>
+      ${working
+        ? esc(a.currentTask||(curEv&&curEv.reason)||'Working on a task')
+          +(curEv&&curEv.reply?`<div class="rep" style="--acc:${acc};margin-top:5px">${esc(curEv.reply.content)}</div>`:'')
+        : `<span style="color:#8f86ad">Nothing right now — ${esc(a.statusLabel||'idle')}</span>`}
+    </div>`;
+    const hist=mine.filter(ev=>!(working&&curEv&&ev.id===curEv.id));
+    sheetChat.innerHTML=curHtml+'<div class="lbl" style="margin-top:8px">TASK HISTORY</div>'+
+      (hist.length?hist.map(row).join(''):'<div class="lbl">NO TASKS YET</div>');
+  }
+  sheetChat.scrollTop=0;
 }
 function closeSheet(){sheet.classList.remove('open');sheetBack.classList.remove('open');}
 sheetBack.addEventListener('click',closeSheet);
