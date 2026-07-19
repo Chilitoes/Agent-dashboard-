@@ -575,6 +575,65 @@ def get_watermark() -> str:
         con.close()
 
 
+# --------------------------------------------------------------------------
+# Todoist (read-only): list current tasks for the Reminders room popup
+# --------------------------------------------------------------------------
+TODOIST_CONFIG = Path(os.environ.get(
+    "TODOIST_CONFIG", Path.home() / ".openclaw" / "workspace" / "scripts" / ".todoist_config"))
+
+
+def _todoist_token() -> str | None:
+    tok = os.environ.get("TODOIST_TOKEN")
+    if tok:
+        return tok.strip()
+    try:
+        raw = TODOIST_CONFIG.read_text().strip()
+    except OSError:
+        return None
+    if raw.startswith("{"):
+        try:
+            d = json.loads(raw)
+            for k in ("token", "api_token", "TODOIST_TOKEN", "apiToken", "api_key"):
+                if d.get(k):
+                    return str(d[k]).strip()
+        except json.JSONDecodeError:
+            pass
+    for line in raw.splitlines():
+        line = line.strip()
+        if "=" in line and "token" in line.split("=", 1)[0].lower():
+            return line.split("=", 1)[1].strip().strip('"\'')
+        if line and " " not in line and len(line) >= 20:
+            return line
+    return raw or None
+
+
+def get_todoist(limit: int = 60) -> dict:
+    tok = _todoist_token()
+    if not tok:
+        return {"ok": False, "error": "No Todoist token configured", "items": []}
+    import urllib.request
+    req = urllib.request.Request(
+        "https://api.todoist.com/rest/v2/tasks",
+        headers={"Authorization": f"Bearer {tok}"})
+    try:
+        with urllib.request.urlopen(req, timeout=7) as r:
+            data = json.loads(r.read().decode())
+    except Exception as e:  # network/auth errors -> graceful message
+        return {"ok": False, "error": f"Todoist unreachable: {e}", "items": []}
+    items = []
+    for t in data:
+        due = t.get("due") or {}
+        items.append({
+            "content": t.get("content", ""),
+            "due": due.get("string") or due.get("date"),
+            "priority": int(t.get("priority", 1)),   # 4=urgent … 1=normal
+            "url": t.get("url", ""),
+        })
+    # urgent first, then soonest due
+    items.sort(key=lambda x: (-x["priority"], x["due"] is None, x["due"] or "￿"))
+    return {"ok": True, "items": items[:limit], "count": len(items)}
+
+
 def diagnostics() -> dict:
     con = _connect()
     tables: list[str] = []

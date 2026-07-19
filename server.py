@@ -68,6 +68,12 @@ async def api_diagnostics() -> JSONResponse:
     return JSONResponse(agent_status.diagnostics())
 
 
+@app.get("/api/todoist")
+async def api_todoist() -> JSONResponse:
+    """Read-only list of current Todoist tasks (for the Reminders room popup)."""
+    return JSONResponse(await asyncio.to_thread(agent_status.get_todoist))
+
+
 @app.get("/api/cron")
 async def api_cron() -> JSONResponse:
     """Cron jobs grouped by agent: schedule, next/last run, running flag."""
