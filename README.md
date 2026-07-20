@@ -1,10 +1,13 @@
 # Agent Village Dashboard
 
-A real-time, read-only **window** into your Hermes agents. The village is a
-packed pixel-art floor plan of varied rooms connected by a central walkable
-corridor. When General delegates, he pauses to decide, walks down the corridor
-to the target agent, the agent works, and replies — all driven by the real
-traces in `~/.hermes/state.db`.
+A real-time, read-only **window** into your Hermes agents, drawn as a
+**Neo-Tokyo megatower** at night: a rain-streaked cross-section of shops and
+offices under a city skyline (lattice broadcast tower, searchlights, drifting
+blimp), each agent's room marked by a vertical kanji neon sign, joined by a
+graffiti'd stairwell that exits past a vending machine onto a puddle-lit
+street. When General delegates, he pauses to decide, walks the stairwell to the
+target agent, the agent works, and replies — all driven by the real traces in
+`~/.hermes/state.db`.
 
 The dashboard never thinks or acts on its own — **General does all the
 delegating using his own intelligence**. The dashboard only observes and

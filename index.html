@@ -16,16 +16,20 @@
      vertically; only sideways rubber-band is suppressed */
   html,body{margin:0;min-height:100%;width:100%;overscroll-behavior-x:none;
     background:
-    radial-gradient(120% 60% at 50% -5%,#1c0f38 0%,transparent 60%),
-    radial-gradient(130% 90% at 50% 100%,#140b28 0%,var(--bg0) 60%),var(--bg0);
+    radial-gradient(120% 60% at 50% -5%,#241040 0%,transparent 60%),
+    radial-gradient(90% 40% at 50% 102%,rgba(233,53,193,.10) 0%,transparent 70%),
+    radial-gradient(130% 90% at 50% 100%,#12081f 0%,var(--bg0) 60%),var(--bg0);
     background-attachment:fixed;
     color:var(--ink);font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;-webkit-font-smoothing:none}
   /* header (sticky) + stage (intrinsic pixel height) scroll under a fixed dock */
   .wrap{max-width:520px;margin:0 auto;padding:0 10px;
     padding-bottom:calc(66px + env(safe-area-inset-bottom))}
   header{display:flex;align-items:center;justify-content:center;position:sticky;top:0;z-index:15;
-    padding:6px 0;margin-bottom:4px;flex:0 0 auto;
+    padding:6px 0 4px;margin-bottom:4px;flex:0 0 auto;
     background:linear-gradient(180deg,var(--bg0) 60%,transparent)}
+  .ttl{text-align:center}
+  .sub{font-size:8.5px;letter-spacing:5px;color:var(--pink);margin-top:2px;
+    text-shadow:0 0 9px rgba(233,53,193,.8)}
   h1{font-size:19px;margin:0;letter-spacing:6px;color:var(--gold);font-weight:800;
     text-shadow:0 0 14px rgba(255,213,46,.65),2px 2px 0 #000}
   .conn{position:absolute;right:2px;top:50%;transform:translateY(-50%);display:flex;gap:6px;align-items:center;font-size:10px;color:var(--muted)}
@@ -149,7 +153,10 @@
 <body>
 <div class="wrap">
   <header>
-    <h1>AGENT VILLAGE</h1>
+    <div class="ttl">
+      <h1>AGENT VILLAGE</h1>
+      <div class="sub">エージェント村 · NEO-TOKYO</div>
+    </div>
     <div class="conn" id="conn"><span class="led"></span><span id="connText">connecting…</span></div>
   </header>
   <div class="stage" id="stage">
@@ -263,12 +270,15 @@ async function boot(){
   requestAnimationFrame(loop);
 }
 
-/* ============ layout: packed floor plan (intrinsic height, page scrolls) ====== */
+/* ============ layout: megatower cross-section (skyline above, street below) === */
 let HULLX=0, HULLW=0, HULLY=0, SHAFTX=0, SHAFTW=0, SHAFTCX=0, SHAFT_TOP=0, SHAFT_BOT=0;
+let SKYH=0, STREETH=0, TOWERBOT=0;
+const ROOFAMB={};   // rooftop/street animation anchors (beacons, billboard, puddles…)
 function layout(){
   W=stage.clientWidth;
-  const margin=Math.round(W*0.02);
-  HULLX=5; HULLW=W-10; HULLY=margin;
+  SKYH=Math.round(W*0.30);       // night skyline + rooftop band above the tower
+  STREETH=Math.round(W*0.15);    // street level below it
+  HULLX=5; HULLW=W-10; HULLY=SKYH;
   // central corridor: a walkable hallway (no lift), set a touch left of centre
   SHAFTW=Math.max(22,Math.round(W*0.075)); SHAFTCX=Math.round(W*0.475); SHAFTX=SHAFTCX-Math.round(SHAFTW/2);
   const lw=SHAFTX-HULLX, rw=(HULLX+HULLW)-(SHAFTX+SHAFTW);
@@ -300,7 +310,8 @@ function layout(){
   });
   SHAFT_TOP=rooms.general.feetY-4;          // corridor runs from General's deck…
   SHAFT_BOT=lastFeetY+6;                     // …down to the bottom floor
-  H=Math.round(y+margin);
+  TOWERBOT=y;                                // tower foundation = top of the street
+  H=Math.round(TOWERBOT+STREETH);
   stage.style.height=H+'px';
   dpr=Math.min(window.devicePixelRatio||1,2);
   for(const c of [bg,fg]){c.width=W*dpr;c.height=H*dpr;}
@@ -324,36 +335,77 @@ function hash2(i,j){let h=(i*374761393+j*668265263)^(i<<7);h=(h^(h>>13))*1274126
 function rr(ctx,x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);
   ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();}
 
-/* ============ background: packed space-station interior ============ */
+/* ============ background: neo-tokyo megatower cross-section ============ */
 function drawBackground(){
   bctx.clearRect(0,0,W,H);
-  drawSpace();
-  // hull outer frame
-  R(bctx,HULLX-3,HULLY-3,HULLW+6,H-HULLY-W*0.02,'#0c0820');
-  bctx.strokeStyle='#2b1c47';bctx.lineWidth=3;bctx.strokeRect(HULLX-2.5,HULLY-2.5,HULLW+5,H-HULLY-W*0.02-1);
+  drawCity();
+  // tower shell: concrete frame the rooms are cut into
+  const th=TOWERBOT-HULLY;
+  R(bctx,HULLX-3,HULLY-3,HULLW+6,th+6,'#0c0820');
+  bctx.strokeStyle='#2b1c47';bctx.lineWidth=3;bctx.strokeRect(HULLX-2.5,HULLY-2.5,HULLW+5,th+5);
   ALL_ROOM_IDS.forEach(id=>{const r=rooms[id];if(!r)return;
     if(SPECIAL[id])drawSpecialRoom(id,r); else drawRoom(cfgOf(id),r);});
   drawCorridor();
-  // hull edge neon
-  bctx.save();bctx.shadowColor='#b026ff';bctx.shadowBlur=7;
-  bctx.strokeStyle='rgba(176,38,255,.5)';bctx.lineWidth=1.5;
-  bctx.strokeRect(HULLX-2.5,HULLY-2.5,HULLW+5,H-HULLY-W*0.02-1);bctx.restore();
+  drawSideSigns();
+  drawRooftop();
+  drawStreet();
+  // tower edge neon piping (magenta — the cut edge of the cross-section)
+  bctx.save();bctx.shadowColor='#e935c1';bctx.shadowBlur=7;
+  bctx.strokeStyle='rgba(233,53,193,.45)';bctx.lineWidth=1.5;
+  bctx.strokeRect(HULLX-2.5,HULLY-2.5,HULLW+5,th+5);bctx.restore();
 }
 
-/* central walkable corridor + a doorway on every room's corridor-facing wall.
-   No lift car — agents just walk the hall between rooms. */
+/* central stairwell alley + a doorway on every room's corridor-facing wall.
+   Agents walk this shaft between floors — concrete, graffiti, vending machine. */
 function drawCorridor(){
-  const x=SHAFTX, w=SHAFTW, top=SHAFT_TOP-6, bot=SHAFT_BOT+8;
-  // hallway floor + side walls
-  vgrad(bctx,x,top,w,bot-top,'#15111f','#0b0816');
+  const x=SHAFTX, w=SHAFTW, top=SHAFT_TOP-6, bot=Math.min(SHAFT_BOT+8,TOWERBOT+7);
+  // raw concrete shaft
+  vgrad(bctx,x,top,w,bot-top,'#17121e','#0b0814');
   R(bctx,x,top,1.5,bot-top,'#2b1f45');R(bctx,x+w-1.5,top,1.5,bot-top,'#2b1f45');
-  R(bctx,x+w/2-0.5,top,1,bot-top,'rgba(45,226,230,.10)');   // centre guide line
-  // grated floor + running ceiling lights
-  for(let ly=top+8;ly<bot;ly+=9)R(bctx,x+2,ly,w-4,1,'rgba(0,0,0,.28)');
-  for(let ly=top+16;ly<bot;ly+=30){bctx.save();bctx.shadowColor='#2de2e6';bctx.shadowBlur=5;
-    R(bctx,x+3,ly,w-6,1.3,'rgba(45,226,230,.5)');bctx.restore();}
+  // water stains running down the concrete
+  for(const fx of [0.28,0.66]){const sx2=x+w*fx;
+    vgrad(bctx,sx2,top+10,2,(bot-top)*0.5,'rgba(0,0,0,.22)','rgba(0,0,0,0)');}
+  // zigzag stair flights between landings (diagonal rail strokes)
+  bctx.strokeStyle='rgba(140,128,175,.28)';bctx.lineWidth=1.2;
+  let flip=1;
+  for(let ly=top+14;ly<bot-18;ly+=26){
+    bctx.beginPath();
+    if(flip>0){bctx.moveTo(x+3,ly);bctx.lineTo(x+w-3,ly+18);}
+    else{bctx.moveTo(x+w-3,ly);bctx.lineTo(x+3,ly+18);}
+    bctx.stroke();
+    for(let k=0;k<4;k++){const t=k/4;                       // stair treads
+      const tx2=flip>0? x+3+(w-6)*t : x+w-3-(w-6)*t;
+      R(bctx,tx2-2,ly+18*t+1.5,5,1.2,'rgba(0,0,0,.35)');}
+    flip=-flip;
+  }
+  // standpipe with joints
+  R(bctx,x+2.5,top,2.2,bot-top,'#241c38');
+  for(let ly=top+22;ly<bot;ly+=40)R(bctx,x+1.5,ly,4.2,2.5,'#312648');
+  // graffiti tags sprayed on the concrete
+  const tags=[['#ff5fa2',0.30],['#39ff88',0.55],['#ffd52e',0.78]];
+  tags.forEach(([tc,fy],i)=>{const gy=top+(bot-top)*fy, gx=x+w*0.5;
+    bctx.save();bctx.globalAlpha=0.5;bctx.strokeStyle=tc;bctx.lineWidth=1.6;
+    bctx.beginPath();bctx.moveTo(gx-6,gy);
+    bctx.bezierCurveTo(gx-2,gy-5,gx+2,gy+5,gx+6,gy-1);bctx.stroke();
+    bctx.lineWidth=1;bctx.beginPath();bctx.arc(gx+(i-1)*4,gy+4,2,0,7);bctx.stroke();
+    bctx.restore();});
+  // dangling cage lamps
+  for(let ly=top+16;ly<bot;ly+=52){
+    R(bctx,x+w/2-0.6,ly-8,1.2,8,'#241a3d');
+    bctx.save();bctx.shadowColor='#ffd9a0';bctx.shadowBlur=6;
+    R(bctx,x+w/2-2.6,ly,5.2,2.4,'rgba(255,217,160,.8)');bctx.restore();}
+  // vending machine glowing at the street exit
+  const vh=17,vw=Math.min(12,w-8),vx=x+w/2-vw/2,vy=bot-vh-2;
+  R(bctx,vx-1,vy-1,vw+2,vh+2,'#0a0714');
+  vgrad(bctx,vx,vy,vw,vh,'#232f55','#141b33');
+  bctx.save();bctx.shadowColor='#ff5fa2';bctx.shadowBlur=6;
+  R(bctx,vx,vy,vw,2,'rgba(255,95,162,.9)');bctx.restore();
+  for(let ry2=0;ry2<3;ry2++)for(let rx2=0;rx2<3;rx2++)
+    R(bctx,vx+1.5+rx2*(vw/3),vy+4+ry2*3.4,2,2,['#ffd52e','#39ff88','#4dc9ff'][(rx2+ry2)%3]);
+  R(bctx,vx+1.5,vy+vh-3,vw-3,1.6,'#060410');
+  ROOFAMB.vend=[vx+vw/2,vy];
   // header plate
-  R(bctx,x-2,top,w+4,5,'#1a1330');R(bctx,x-2,top+5,w+4,1,'rgba(45,226,230,.4)');
+  R(bctx,x-2,top,w+4,5,'#1a1330');R(bctx,x-2,top+5,w+4,1,'rgba(233,53,193,.4)');
   // doorway in each room's corridor-facing wall (at that room's floor level)
   ALL_ROOM_IDS.forEach(id=>{const r=rooms[id];if(!r)return;
     const dh=Math.min(r.h*0.34,22)+6, dy=r.feetY+4-dh;
@@ -419,25 +471,160 @@ function subagentInterior(r,lit,neon){const{x,y,w,h}=r;
     r.amb.pods.push([px+pw/2,r.feetY]);}
 }
 
-function drawSpace(){
-  vgrad(bctx,0,0,W,H,'#070313','#0c0620');
-  for(const[nx,ny,nr,nc] of [[W*0.15,H*0.14,W*0.55,'rgba(176,38,255,.05)'],
-      [W*0.9,H*0.5,W*0.5,'rgba(45,226,230,.04)'],[W*0.2,H*0.85,W*0.5,'rgba(233,53,193,.05)']]){
-    const g=bctx.createRadialGradient(nx,ny,0,nx,ny,nr);g.addColorStop(0,nc);g.addColorStop(1,'transparent');
-    bctx.fillStyle=g;bctx.fillRect(0,0,W,H);}
-  for(let i=0;i<130;i++){const sx=(i*89)%W,sy=(i*127)%H,big=i%12===0;
-    R(bctx,sx,sy,big?1.8:1,big?1.8:1,`rgba(210,200,255,${0.10+(i%6)*0.05})`);}
-  // planet arc bottom
-  const pg=bctx.createRadialGradient(W/2,H+W*0.55,W*0.4,W/2,H+W*0.55,W*0.72);
-  pg.addColorStop(0,'#0e3a4a');pg.addColorStop(0.8,'#155a66');pg.addColorStop(1,'#2de2e6');
-  bctx.fillStyle=pg;bctx.beginPath();bctx.arc(W/2,H+W*0.55,W*0.72,0,7);bctx.fill();
+const NEON_SIGN_COLS=['#ff5fa2','#2de2e6','#ffd52e','#39ff88','#b026ff','#ff7847'];
+function skylineLayer(baseY,scale,col,seedOff,winAlpha){
+  let x=-12,k=0;
+  while(x<W+12){
+    const bw=13+hash2(k,seedOff)*30;
+    const bh=(0.30+hash2(k,seedOff+7)*0.70)*SKYH*scale;
+    R(bctx,x,baseY-bh,bw,bh,col);
+    if(hash2(k,seedOff+3)>0.62)R(bctx,x+bw*0.5,baseY-bh-6,1,6,col);     // roof mast
+    if(hash2(k,seedOff+5)>0.85)R(bctx,x+bw*0.45,baseY-bh-3,2.5,1.5,'rgba(255,80,80,.75)');
+    for(let wy=baseY-bh+3;wy<baseY-4;wy+=5)                              // lit windows
+      for(let wx=x+2;wx<x+bw-2;wx+=4)
+        if(hash2(wx|0,wy|0)>0.74){const warm=hash2(wx|0,wy+1|0)>0.45;
+          R(bctx,wx,wy,1.5,2,warm?`rgba(255,205,130,${winAlpha})`:`rgba(120,220,255,${winAlpha*0.8})`);}
+    if(hash2(k,seedOff+9)>0.8){                                          // building-side neon strip
+      const nc=NEON_SIGN_COLS[(k+seedOff)%NEON_SIGN_COLS.length];
+      bctx.save();bctx.shadowColor=nc;bctx.shadowBlur=5;
+      R(bctx,x+bw-4,baseY-bh*0.8,2.5,bh*0.35,rgba(nc,0.8));bctx.restore();}
+    x+=bw+2+hash2(k,seedOff+11)*7;k++;
+  }
+}
+function drawCity(){
+  // night sky over everything (also fills behind the tower + street)
+  vgrad(bctx,0,0,W,H,'#05030f','#0d0718');
+  const horizon=SKYH*0.92;
+  vgrad(bctx,0,0,W,horizon,'#070312','#221238');
+  for(let i=0;i<34;i++){const sx=(i*89)%W, sy=(i*53)%Math.round(horizon*0.5);
+    R(bctx,sx,sy,1,1,`rgba(210,200,255,${0.12+(i%5)*0.05})`);}
+  // low moon behind the skyline
+  const mx=W*0.80,myy=SKYH*0.26,mr=W*0.055;
+  bctx.save();bctx.shadowColor='#cfc4ec';bctx.shadowBlur=16;
+  bctx.fillStyle='#ded4f2';bctx.beginPath();bctx.arc(mx,myy,mr,0,7);bctx.fill();bctx.restore();
+  bctx.fillStyle='rgba(150,140,180,.35)';
+  bctx.beginPath();bctx.arc(mx-mr*0.3,myy-mr*0.2,mr*0.18,0,7);bctx.fill();
+  bctx.beginPath();bctx.arc(mx+mr*0.25,myy+mr*0.3,mr*0.12,0,7);bctx.fill();
+  // two parallax skylines with a lattice broadcast tower between them,
+  // then the pink smog line where city meets sky
+  skylineLayer(horizon,0.55,'#181030',3,0.50);
+  latticeTower(W*0.13,horizon,SKYH*0.78);
+  skylineLayer(horizon,0.82,'#241640',17,0.70);
+  vgrad(bctx,0,horizon-18,W,18,'rgba(233,53,193,0)','rgba(233,53,193,.16)');
+  R(bctx,0,horizon,W,H-horizon,'#0d0718');   // ground plane behind tower/street
+}
+/* Tokyo-Tower-style lattice mast: flared legs, two decks, orange edge lights */
+function latticeTower(bx,baseY,h){
+  const wBase=h*0.40, wTop=h*0.05;
+  const leg=(sgn)=>{bctx.moveTo(bx+sgn*wBase/2,baseY);
+    bctx.quadraticCurveTo(bx+sgn*wTop*1.3,baseY-h*0.55,bx+sgn*wTop/2,baseY-h);};
+  bctx.fillStyle='#221022';
+  bctx.beginPath();leg(-1);bctx.lineTo(bx+wTop/2,baseY-h);
+  bctx.quadraticCurveTo(bx+wTop*1.3,baseY-h*0.55,bx+wBase/2,baseY);
+  bctx.closePath();bctx.fill();
+  R(bctx,bx-h*0.125,baseY-h*0.50,h*0.25,h*0.05,'#2c1528');   // main deck
+  R(bctx,bx-h*0.065,baseY-h*0.78,h*0.13,h*0.045,'#2c1528');  // top deck
+  bctx.save();bctx.shadowColor='#ff8c42';bctx.shadowBlur=4;
+  bctx.strokeStyle='rgba(255,140,66,.55)';bctx.lineWidth=1;
+  bctx.beginPath();leg(-1);leg(1);bctx.stroke();
+  R(bctx,bx-h*0.125,baseY-h*0.50,h*0.25,1,'rgba(255,140,66,.5)');
+  R(bctx,bx-h*0.065,baseY-h*0.78,h*0.13,1,'rgba(255,140,66,.5)');
+  bctx.restore();
+  R(bctx,bx-0.8,baseY-h-4,1.6,4,'#3a1a2a');
+  ROOFAMB.towerTip=[bx,baseY-h-4];
+}
+
+/* ---- rooftop above the top floor: parapet, tank, AC, mast, big billboard ---- */
+function drawRooftop(){
+  const py=HULLY-3;
+  R(bctx,HULLX-3,py-6,HULLW+6,6,'#171126');                       // parapet
+  R(bctx,HULLX-3,py-6,HULLW+6,1.4,'rgba(255,255,255,.08)');
+  // water tank (left)
+  const tx=HULLX+HULLW*0.06,tw=W*0.085,ty=py-6;
+  R(bctx,tx+2,ty-14,2,14,'#241a3d');R(bctx,tx+tw-4,ty-14,2,14,'#241a3d');
+  R(bctx,tx,ty-30,tw,17,'#2a2140');R(bctx,tx,ty-30,tw,2,'#3a2f55');
+  bctx.fillStyle='#2a2140';bctx.beginPath();bctx.ellipse(tx+tw/2,ty-30,tw/2,4,0,Math.PI,0);bctx.fill();
+  for(let i=1;i<3;i++)R(bctx,tx,ty-30+i*5.5,tw,1,'rgba(0,0,0,.3)');
+  // AC units (right of centre)
+  for(let i=0;i<3;i++){const ax=HULLX+HULLW*(0.60+i*0.085);
+    R(bctx,ax,py-14,W*0.055,8,'#221a38');R(bctx,ax,py-14,W*0.055,1.2,'rgba(255,255,255,.09)');
+    bctx.strokeStyle='#141020';bctx.lineWidth=1;
+    bctx.beginPath();bctx.arc(ax+W*0.0275,py-10,2.6,0,7);bctx.stroke();}
+  // antenna mast (right)
+  const ax2=HULLX+HULLW*0.90;
+  R(bctx,ax2,py-40,1.6,34,'#3a2f55');
+  R(bctx,ax2-4,py-32,9.6,1.2,'#3a2f55');R(bctx,ax2-2.5,py-24,6.6,1.2,'#3a2f55');
+  // big HERMES billboard on posts (centre-left)
+  const bw=HULLW*0.46,bx=HULLX+HULLW*0.20,bh=SKYH*0.34,by=py-10-bh;
+  R(bctx,bx+bw*0.14,by+bh,2.5,10,'#241a3d');R(bctx,bx+bw*0.82,by+bh,2.5,10,'#241a3d');
+  R(bctx,bx-2,by-2,bw+4,bh+4,'#171126');
+  vgrad(bctx,bx,by,bw,bh,'#1c0f30','#12081f');
+  bctx.strokeStyle='rgba(233,53,193,.6)';bctx.lineWidth=1.4;bctx.strokeRect(bx,by,bw,bh);
+  neonText(bctx,'ヘルメス',bx+bw/2,by+bh*0.36,Math.max(10,bw*0.115),'#ff5fa2',10);
+  neonText(bctx,'H E R M E S',bx+bw/2,by+bh*0.74,Math.max(6,bw*0.055),'#2de2e6',7);
+  // draped cables: mast -> billboard -> water tank
+  bctx.strokeStyle='rgba(120,110,160,.35)';bctx.lineWidth=1;
+  bctx.beginPath();bctx.moveTo(ax2,py-38);bctx.quadraticCurveTo((ax2+bx+bw)/2,py-4,bx+bw,by+4);bctx.stroke();
+  bctx.beginPath();bctx.moveTo(bx,by+4);bctx.quadraticCurveTo((bx+tx+tw)/2,py-8,tx+tw/2,ty-28);bctx.stroke();
+  ROOFAMB.beacons=[[ax2+0.8,py-41],[bx-1,by-2],[bx+bw+1,by-2]];
+  ROOFAMB.bb={x:bx,y:by,w:bw,h:bh};
+}
+
+/* ---- street level under the tower: road, crossing, puddles, lamps ---- */
+function drawStreet(){
+  const sy=TOWERBOT;
+  R(bctx,HULLX-3,sy,HULLW+6,4,'#1a1330');                          // foundation
+  R(bctx,0,sy+4,W,3,'#221a38');R(bctx,0,sy+6.4,W,0.8,'rgba(255,255,255,.10)'); // kerb
+  vgrad(bctx,0,sy+7,W,H-sy-7,'#100b1c','#0a0614');                 // asphalt
+  for(let dx=6;dx<W;dx+=26)R(bctx,dx,sy+STREETH*0.55,12,1.6,'rgba(220,210,255,.12)'); // lane dashes
+  // zebra crossing where the stairwell meets the street
+  for(let i=0;i<5;i++)R(bctx,SHAFTX-8+i*8,sy+9,5,STREETH*0.5,'rgba(220,210,255,.07)');
+  // neon puddles (anchor points for the shimmer pass on fg)
+  ROOFAMB.puddles=[];
+  for(let i=0;i<5;i++){const px=W*(0.08+i*0.19)+hash2(i,31)*20, pw=14+hash2(i,7)*18;
+    const nc=NEON_SIGN_COLS[i%NEON_SIGN_COLS.length];
+    const pyy=sy+STREETH*(0.62+hash2(i,13)*0.2);
+    bctx.fillStyle=rgba(nc,0.10);bctx.beginPath();bctx.ellipse(px,pyy,pw,2.6,0,0,7);bctx.fill();
+    bctx.fillStyle=rgba(nc,0.16);bctx.beginPath();bctx.ellipse(px,pyy,pw*0.55,1.5,0,0,7);bctx.fill();
+    ROOFAMB.puddles.push([px,pyy,pw,nc]);}
+  // manhole + street lamps with light cones
+  bctx.strokeStyle='rgba(255,255,255,.10)';bctx.lineWidth=1;
+  bctx.beginPath();bctx.ellipse(W*0.72,sy+STREETH*0.8,6,2,0,0,7);bctx.stroke();
+  for(const fx of [0.10,0.88]){const lx=W*fx;
+    R(bctx,lx,sy-16,1.6,23,'#241a3d');R(bctx,lx-3.5,sy-17.5,8.6,2,'#241a3d');
+    bctx.save();bctx.shadowColor='#ffd9a0';bctx.shadowBlur=7;
+    R(bctx,lx-2,sy-16,5.6,1.6,'rgba(255,217,160,.85)');bctx.restore();
+    const g=bctx.createLinearGradient(0,sy-14,0,sy+STREETH*0.7);
+    g.addColorStop(0,'rgba(255,217,160,.10)');g.addColorStop(1,'transparent');
+    bctx.fillStyle=g;bctx.beginPath();
+    bctx.moveTo(lx-1,sy-14);bctx.lineTo(lx+2.6,sy-14);
+    bctx.lineTo(lx+9,sy+STREETH*0.7);bctx.lineTo(lx-8,sy+STREETH*0.7);bctx.closePath();bctx.fill();}
+}
+
+/* ---- vertical kanji shop signs on each room's outer wall ---- */
+const SIDESIGN={general:'司令',memory:'記憶',finance:'両替',reminders:'伝言',
+  predictions:'占い',books:'古本',health:'道場',japanese:'居酒屋',coding:'電脳',
+  office:'会議室',subagents:'子機'};
+function drawSideSigns(){
+  ALL_ROOM_IDS.forEach(id=>{const r=rooms[id];if(!r)return;
+    const chars=SIDESIGN[id];if(!chars)return;
+    const neon=(cfgOf(id).neon)||'#ff5fa2';
+    const sw=13, sh=chars.length*11+8;
+    const sx=(r.side==='R'||r.side==='top') ? r.x+r.w-sw-3 : r.x+3;
+    const sy2=r.y+26;
+    if(sy2+sh>r.feetY-6)return;                       // room too short — skip
+    R(bctx,sx,sy2,sw,sh,'rgba(4,2,12,.88)');
+    bctx.strokeStyle=rgba(neon,0.5);bctx.lineWidth=1;bctx.strokeRect(sx+0.5,sy2+0.5,sw-1,sh-1);
+    R(bctx,sx+sw/2-0.7,sy2-4,1.4,4,'#241a3d');        // hanger
+    bctx.save();bctx.font='800 9px ui-monospace,monospace';
+    bctx.textAlign='center';bctx.textBaseline='middle';
+    bctx.shadowColor=neon;bctx.shadowBlur=6;bctx.fillStyle=neon;
+    [...chars].forEach((ch,i)=>bctx.fillText(ch,sx+sw/2,sy2+9+i*11));
+    bctx.restore();});
 }
 
 /* ---- shared room chrome ---- */
-function starWindow(x,y,w,h){
-  R(bctx,x,y,w,h,'#080618');
-  for(let i=0;i<Math.max(3,w/16);i++)R(bctx,x+hash2(i,x|0)*w,y+hash2(x|0,i)*h,1.3,1.3,`rgba(220,210,255,${0.35+hash2(i,3)*0.4})`);
-}
+function starWindow(x,y,w,h){R(bctx,x,y,w,h,'#0a0722');winStars(x,y,w,h);}
 function roomSign(r,name,st,neon){
   // top-LEFT corner plate (keeps the centre-top clear for the agent's name tag)
   const label=name.toUpperCase(), fs=Math.max(7,Math.min(9.5,r.w*0.055));
@@ -488,9 +675,22 @@ function wallTex(id,x,y,w,hh){
       for(let i=0;i<5;i++)R(bctx,x+w-26+i*4.5,y+4+i*3,3,2,i%2?'rgba(255,213,46,.35)':'rgba(20,20,28,.6)');break;
   }
 }
-/* ---- per-room window shapes (stars inside) ---- */
-function winStars(px,py,pw,ph){for(let i=0;i<Math.max(2,pw*ph/120);i++)
-  R(bctx,px+hash2(i,px|0)*pw,py+hash2(px|0,i)*ph,1.2,1.2,`rgba(220,210,255,${0.35+hash2(i,5)*0.4})`);}
+/* ---- per-room window shapes (the night city outside) ---- */
+function winStars(px,py,pw,ph){
+  vgrad(bctx,px,py,pw,ph,'#0b0724','#161030');
+  // bokeh of other towers' lit windows — warm sodium + cool office glass
+  for(let i=0;i<Math.max(3,pw*ph/55);i++){
+    const wx=px+hash2(i,px|0)*pw, wy=py+hash2(px|0,i)*ph;
+    const warm=hash2(i,9)>0.48;
+    R(bctx,wx,wy,1.4,1.9,warm?`rgba(255,205,130,${0.28+hash2(i,5)*0.4})`
+                            :`rgba(120,220,255,${0.22+hash2(i,5)*0.35})`);}
+  // occasionally a neon smear from a nearby sign bleeds into the view
+  if(hash2(px|0,17)>0.55){
+    const nc=NEON_SIGN_COLS[(px|0)%NEON_SIGN_COLS.length];
+    const nx=px+hash2(px|0,23)*pw*0.8;
+    bctx.save();bctx.shadowColor=nc;bctx.shadowBlur=4;
+    R(bctx,nx,py+ph*0.25,2,ph*0.5,rgba(nc,0.5));bctx.restore();}
+}
 function drawWindows(id,x,y,w,wy,wh,lit,neon){
   const frame=lit>0.4?rgba(neon,0.45):'#2b1c47';
   const arch=(ax,aw)=>{bctx.save();bctx.beginPath();
@@ -1084,21 +1284,96 @@ function robotChar(ctx,cx,feetY,s,time,seed){
 
 /* ============ ambient animation (fg) ============ */
 const CRATE_COLS=['#4dc9ff','#ffd52e','#ff7847','#39ff88','#e935c1'], CRATE_HI='rgba(255,255,255,.25)';
+/* city life: rain, fog, air traffic, beacons, billboard flicker, street cars */
+function cityAmbient(t){
+  // blimp with a flickering ad panel, drifting across the skyline
+  const bx=((t*7)%(W+140))-70, by=SKYH*0.16+Math.sin(t*0.5)*3;
+  fctx.fillStyle='#3a2f55';fctx.beginPath();fctx.ellipse(bx,by,17,5.5,0,0,7);fctx.fill();
+  fctx.fillStyle='#241a3d';fctx.beginPath();
+  fctx.moveTo(bx-17,by);fctx.lineTo(bx-23,by-4);fctx.lineTo(bx-23,by+4);fctx.closePath();fctx.fill();
+  R(fctx,bx-5,by+5,10,3,'#241a3d');
+  if(Math.sin(t*3.1)>-0.4){fctx.save();fctx.shadowColor='#ff5fa2';fctx.shadowBlur=6;
+    R(fctx,bx-8,by-2.5,16,4.5,`rgba(255,95,162,${0.45+0.3*Math.sin(t*9)})`);fctx.restore();}
+  // air-taxi streaking past every ~7s with a headlight beam + tail trail
+  const cph=(t%7.3)/7.3;
+  if(cph<0.32){const k=cph/0.32, cx2=W+30-k*(W+60), cy2=SKYH*0.47+Math.sin(k*9)*2;
+    fctx.strokeStyle=`rgba(255,80,110,${0.5*(1-k*0.5)})`;fctx.lineWidth=1.3;
+    fctx.beginPath();fctx.moveTo(cx2+6,cy2);fctx.lineTo(cx2+22,cy2);fctx.stroke();
+    R(fctx,cx2,cy2-1.6,7,3.2,'#1a1330');
+    fctx.save();fctx.shadowColor='#fff';fctx.shadowBlur=5;
+    R(fctx,cx2-1.6,cy2-1,2,2,'rgba(255,255,255,.95)');fctx.restore();}
+  // searchlight beams crossing the sky
+  for(const[sx0,dir,spd,ph0] of [[W*0.30,1,0.33,0],[W*0.62,-1,0.27,2.1]]){
+    const ang=-Math.PI/2+dir*Math.sin(t*spd+ph0)*0.42, len=SKYH*0.95, syl=SKYH*0.92;
+    fctx.save();fctx.globalAlpha=0.07;fctx.fillStyle='#cfd6ff';
+    fctx.beginPath();fctx.moveTo(sx0,syl);
+    fctx.lineTo(sx0+Math.cos(ang)*len-7,syl+Math.sin(ang)*len);
+    fctx.lineTo(sx0+Math.cos(ang)*len+7,syl+Math.sin(ang)*len);
+    fctx.closePath();fctx.fill();fctx.restore();}
+  // rooftop beacons + the lattice tower's blinker + billboard glow-flicker
+  if(ROOFAMB.beacons){
+    ROOFAMB.beacons.forEach(([px,py],i)=>{const o2=Math.sin(t*2.2+i*1.6)>0;
+      if(o2){fctx.save();fctx.shadowColor='#ff4d6d';fctx.shadowBlur=7;
+        R(fctx,px-1.4,py-1.4,2.8,2.8,'rgba(255,77,109,.95)');fctx.restore();}});}
+  if(ROOFAMB.towerTip&&Math.sin(t*1.7)>0.2){const[px,py]=ROOFAMB.towerTip;
+    fctx.save();fctx.shadowColor='#ff8c42';fctx.shadowBlur=6;
+    R(fctx,px-1.2,py-1.2,2.4,2.4,'rgba(255,140,66,.95)');fctx.restore();}
+  if(ROOFAMB.bb){const b=ROOFAMB.bb, buzz=hash2(Math.floor(t*7),3)>0.92;
+    fctx.fillStyle=buzz?'rgba(4,2,12,.55)':`rgba(255,95,162,${0.05+0.04*Math.sin(t*2.7)})`;
+    fctx.fillRect(b.x,b.y,b.w,b.h);}
+  // vending machine hum-flicker at the stairwell exit
+  if(ROOFAMB.vend&&hash2(Math.floor(t*11),7)>0.85){const[vx,vy]=ROOFAMB.vend;
+    fctx.save();fctx.shadowColor='#ff5fa2';fctx.shadowBlur=8;
+    R(fctx,vx-6,vy,12,1.6,'rgba(255,95,162,.55)');fctx.restore();}
+  // street: a car crossing with headlight glow, wheels at kerb level
+  const sph=(t%9.1)/9.1;
+  if(sph<0.42&&TOWERBOT){const k=sph/0.42, cx3=-30+k*(W+60), cy3=TOWERBOT+STREETH*0.42;
+    fctx.save();fctx.shadowColor='#ffd9a0';fctx.shadowBlur=6;
+    R(fctx,cx3+12,cy3+1,3,2,'rgba(255,217,160,.9)');fctx.restore();
+    fctx.strokeStyle='rgba(255,217,160,.18)';fctx.lineWidth=3;
+    fctx.beginPath();fctx.moveTo(cx3+15,cy3+2);fctx.lineTo(cx3+34,cy3+2.5);fctx.stroke();
+    R(fctx,cx3,cy3-2,13,4.5,'#1c1430');R(fctx,cx3+3,cy3-4,6,2.5,'#241a3d');
+    R(fctx,cx3+1,cy3+2,2.6,2,'#060410');R(fctx,cx3+9,cy3+2,2.6,2,'#060410');
+    R(fctx,cx3-1,cy3-1,1.6,1.6,'rgba(255,60,80,.9)');}
+  // puddles shimmer with the neon they reflect
+  if(ROOFAMB.puddles)ROOFAMB.puddles.forEach(([px,py,pw,nc],i)=>{
+    const sx2=px+Math.sin(t*1.3+i*2)*pw*0.4;
+    fctx.fillStyle=rgba(nc,0.22+0.1*Math.sin(t*2+i));
+    fctx.fillRect(sx2-3,py-0.6,6,1.2);});
+  // drifting smog banks across the tower midsection
+  for(let i=0;i<3;i++){const fy=HULLY+(TOWERBOT-HULLY)*(0.22+i*0.3);
+    const fx2=((t*(4+i*2.4)+i*180)%(W+220))-110;
+    const g=fctx.createRadialGradient(fx2,fy,0,fx2,fy,70);
+    g.addColorStop(0,'rgba(150,130,200,.045)');g.addColorStop(1,'transparent');
+    fctx.fillStyle=g;fctx.fillRect(fx2-70,fy-16,140,32);}
+  // rain: one streak pass everywhere, heavier over sky + street
+  fctx.lineWidth=1;
+  fctx.strokeStyle='rgba(160,190,255,.12)';
+  fctx.beginPath();
+  for(let i=0;i<64;i++){
+    const sp=380+(i%4)*95;
+    const px=(((i*73.7)%(W+24))+t*30*(1+(i%3)*0.25))%(W+24)-12;
+    const py=(((i*131.3)%(H+30))+t*sp)%(H+30)-15;
+    fctx.moveTo(px,py);fctx.lineTo(px-3.4,py+12);}
+  fctx.stroke();
+  fctx.strokeStyle='rgba(160,190,255,.16)';
+  fctx.beginPath();
+  for(let i=0;i<26;i++){
+    const sp=460+(i%3)*110;
+    const px=(((i*97.1)%(W+24))+t*36)%(W+24)-12;
+    const heavyBand=i%2? (((i*53)%SKYH)+t*sp)%SKYH
+                       : TOWERBOT+(((i*53)%STREETH)+t*sp)%STREETH;
+    fctx.moveTo(px,heavyBand);fctx.lineTo(px-3.8,heavyBand+13);}
+  fctx.stroke();
+  // splashes where rain hits the parapet + the kerb
+  for(let i=0;i<7;i++){const on=Math.sin(t*9+i*2.7)>0.8;if(!on)continue;
+    const px=(i*137)%W;
+    fctx.fillStyle='rgba(190,210,255,.4)';
+    fctx.fillRect(px,HULLY-10,1.4,1.4);fctx.fillRect(px+29,TOWERBOT+6,1.4,1.4);}
+}
 function drawAmbient(t,s){
   const A=id=>((byId[id]||{}).status)||'offline';
-  // twinkling stars
-  for(let i=0;i<9;i++){
-    const sx=(i*151)%W, sy=(i*211)%H;
-    const al=0.2+0.5*Math.max(0,Math.sin(t*1.4+i*2.6));
-    fctx.fillStyle=`rgba(220,210,255,${al})`;fctx.fillRect(sx,sy,1.6,1.6);}
-  // drifting satellite
-  const satX=((t*9)%(W+60))-30, satY=H*0.055+Math.sin(t*0.4)*4;
-  R(fctx,satX,satY,7,3,'#8f86ad');R(fctx,satX-4,satY+0.5,4,2,'#4dc9ff');R(fctx,satX+7,satY+0.5,4,2,'#4dc9ff');
-  // shooting star (short life each ~9s)
-  const ph=(t%9)/9;
-  if(ph<0.08){const k=ph/0.08, mx=W*0.15+k*W*0.5, my=H*0.06+k*H*0.05;
-    fctx.strokeStyle=`rgba(255,255,255,${0.7*(1-k)})`;fctx.lineWidth=1.2;
-    fctx.beginPath();fctx.moveTo(mx,my);fctx.lineTo(mx-14,my-5);fctx.stroke();}
+  cityAmbient(t);
   AGENTS.forEach(a=>{
     const r=rooms[a.id]; if(!r)return;
     const st=A(a.id); if(litFactor(st)<0.3)return;
