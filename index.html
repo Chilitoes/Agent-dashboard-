@@ -209,8 +209,10 @@ const DONES=['Done ✅','All set!','Finished 👍','Wrapped up ✨','Task comple
   'Handled it ✅','That’s done!','Complete 🎉'];
 function doneFor(id){let h=7;for(const c of String(id))h=(h*33+c.charCodeAt(0))>>>0;return DONES[h%DONES.length];}
 const doneBubble={};   // id -> {text, until(ms)}  completion speech bubbles
+const lastDone={};     // id -> last doneResult string already shown (dedupe)
 
 let AGENTS=[], byId={}, rooms={};
+let COLLAB={active:false,members:[],task:'',ts:null}, SUBAGENTS=[];   // live collab + spawned workers
 let W=0,H=0,dpr=1, spineX=0, spineW=0, spineTop=0, spineBot=0;
 const seenDeleg=new Set();
 const DOT_HEX={working:'#39ff88',active:'#39ff88',idle:'#ff9e3d',afk:'#4dc9ff',offline:'#4a4560'};
@@ -764,6 +766,22 @@ function nameTag(ctx,cx,feetY,s,name,label,stHex){
   if(label){ctx.font='600 7px ui-monospace,monospace';ctx.fillStyle=stHex;ctx.textAlign='center';
     ctx.fillText(label,x+w/2,y+11);}
 }
+/* small "current task" chip floated above a working agent so what each agent is
+   doing is readable straight off the map (not only inside the room sheet) */
+function taskChip(ctx,cx,feetY,s,text,accent){
+  if(!text)return;
+  const t=text.length>28?text.slice(0,27)+'…':text;
+  ctx.font='700 7px ui-monospace,monospace';
+  const tw=Math.min(ctx.measureText(t).width,W*0.42);
+  const w=tw+18, x=Math.round(cx-w/2), y=Math.round(feetY-17*s-14);
+  ctx.save();ctx.shadowColor=rgba(accent,0.5);ctx.shadowBlur=5;
+  ctx.fillStyle='rgba(6,3,14,.92)';rr(ctx,x,y,w,12,3);ctx.fill();ctx.restore();
+  ctx.strokeStyle=rgba(accent,0.6);ctx.lineWidth=1;rr(ctx,x+0.5,y+0.5,w-1,11,3);ctx.stroke();
+  ctx.fillStyle=accent;ctx.beginPath();ctx.arc(x+6,y+6,1.9,0,7);ctx.fill();
+  ctx.save();rr(ctx,x,y,w,12,3);ctx.clip();
+  ctx.fillStyle='#efeaff';ctx.textAlign='left';ctx.textBaseline='middle';
+  ctx.fillText(t,x+11,y+6.4);ctx.restore();
+}
 /* lift car drawn on the fg around whoever is riding the shaft */
 function drawLiftCar(cy){
   const carH=Math.max(18,W*0.048), x=SHAFTX+2, w=SHAFTW-4, y=cy-carH+7;
@@ -1083,6 +1101,10 @@ function loop(ts){
     drawChar(fctx,o.x,r.feetY-bob,s,a.id,moving,time*11+o.seed,o.dir,st==='working',time,o.seed);
     if(working)drawTask(fctx,a.id,o.x,r.feetY-bob,s,time,o.dir);
     nameTag(fctx,o.x,r.feetY-bob,s,a.name,info.statusLabel||'',DOT_HEX[st]);
+    // current task readable on the map (only while working, and not while a
+    // completion bubble is up for this agent)
+    if(working && info.currentTask && !(doneBubble[a.id]&&ts<doneBubble[a.id].until))
+      taskChip(fctx,o.x,r.feetY-bob,s,info.currentTask,a.neon||'#39ff88');
     fctx.globalAlpha=1;
     // completion bubble (skip if General is here delivering — his reply bubble covers it)
     const db=doneBubble[a.id];
@@ -1141,13 +1163,21 @@ function applyAgents(list){
   list.forEach(a=>{
     const prev=(byId[a.id]||{}).status;
     byId[a.id]={...byId[a.id],...a};
-    // just finished working -> pop a TLDR completion bubble (its real reply if
-    // fresh, else a Done line); shown a bit longer so the summary is readable
-    if(prev==='working' && a.status && a.status!=='working' && a.id!=='general'){
+    if(a.id==='general')return;
+    // Completion bubble = the real TLDR. If General emitted [[done: agent | …]]
+    // the backend hands us the actual result, so pop it the moment we first see
+    // it (deduped) — no waiting on the working window. Otherwise fall back to an
+    // inferred "just finished" bubble on the working→idle transition.
+    if(a.doneResult && lastDone[a.id]!==a.doneResult){
+      lastDone[a.id]=a.doneResult;
+      const txt=a.doneResult;
+      doneBubble[a.id]={text:txt.length>58?txt.slice(0,56)+'…':txt, until:performance.now()+7500};
+    }else if(!a.doneResult && prev==='working' && a.status && a.status!=='working'){
       const rb=replyByAgent[a.id];
       const txt=(rb&&rb.ts>Date.now()/1000-900)?rb.content:doneFor(a.id+(a.currentTask||''));
       doneBubble[a.id]={text:txt.length>58?txt.slice(0,56)+'…':txt, until:performance.now()+6500};
     }
+    if(!a.doneResult)lastDone[a.id]=undefined;   // reset once the marker ages out
   });
   drawBackground();
   // refresh the feed when statuses/tasks change (covers cron runs appearing)
@@ -1168,7 +1198,9 @@ function connectSSE(){
   const es=new EventSource('api/agents/stream');
   es.addEventListener('open',()=>setConn(true));
   es.addEventListener('error',()=>setConn(false));
-  es.addEventListener('agents',e=>applyAgents(JSON.parse(e.data).agents));
+  es.addEventListener('agents',e=>{const d=JSON.parse(e.data);
+    if(d.collab)COLLAB=d.collab; if(d.subagents)SUBAGENTS=d.subagents;
+    applyAgents(d.agents);});
   es.addEventListener('delegations',e=>handleDelegations(JSON.parse(e.data).delegations));
 }
 function setConn(l){connEl.classList.toggle('live',l);connText.textContent=l?'live':'reconnecting…';}
@@ -1258,11 +1290,13 @@ async function openSheet(id){
   const relF=ts=>{if(!ts)return'';const d=ts-Date.now()/1000;
     if(d<=0)return rel(ts);if(d<3600)return `in ${d/60|0}m`;if(d<86400)return `in ${d/3600|0}h`;return `in ${d/86400|0}d`;};
   const myCron=cronMap[id]||[];
-  const schedHtml=myCron.length?'<div class="lbl" style="margin-top:2px">SCHEDULED</div>'+
+  // Cron lives in its OWN section (schedule + next + last run) — kept separate
+  // from the delegated-task history below.
+  const schedHtml=myCron.length?'<div class="lbl" style="margin-top:2px">⏰ CRON JOBS</div>'+
     myCron.map(j=>`<div class="trow" style="--acc:${acc}">
       <div class="meta"><span style="color:${acc}">⏰ ${esc(j.name.toUpperCase())}</span>
-      ${j.running?'<span style="color:#39ff88">RUNNING</span>':''}</div>
-      ${esc(j.schedule||'')}${j.next?` · next ${relF(j.next)}`:''}</div>`).join(''):'';
+      ${j.running?'<span style="color:#39ff88">RUNNING</span>':(j.enabled?'':'<span style="color:#8f86ad">OFF</span>')}</div>
+      <b>${esc(j.schedule||'—')}</b>${j.next?` · next ${relF(j.next)}`:''}${j.last?` · ran ${rel(j.last)}`:''}</div>`).join(''):'';
   const row=ev=>{
     const to=byId[ev.to]||{name:ev.to,emoji:'',neon:acc};
     if(ev.type==='cron')
@@ -1276,13 +1310,13 @@ async function openSheet(id){
       <div class="rep">${esc(replyTxt)}</div></div>`;
   };
   if(a.isHub){
-    // General: his schedule + delegation log (oldest→newest, most recent at bottom)
-    const log=feed;   // feed arrives ascending (oldest first)
+    // General: his cron + delegation log (delegations only; cron sits above).
+    const log=feed.filter(ev=>ev.type!=='cron');   // ascending (oldest first)
     sheetChat.innerHTML=schedHtml+'<div class="lbl" style="margin-top:6px">DELEGATION LOG</div>'+
       (log.length?log.map(row).join(''):'<div class="lbl">NO DELEGATIONS YET</div>');
   }else{
-    // Agent: current task + schedule + history (oldest→newest, most recent at bottom)
-    const mine=feed.filter(ev=>ev.to===id);           // ascending
+    // Agent: current task + cron section + delegated-task history (no cron mixed in)
+    const mine=feed.filter(ev=>ev.to===id && ev.type!=='cron');   // ascending
     const curEv=mine[mine.length-1];                  // newest
     const working=a.status==='working';
     const curHtml=`<div class="curcard" style="--acc:${acc}">
@@ -1290,7 +1324,9 @@ async function openSheet(id){
       ${working
         ? esc(a.currentTask||(curEv&&curEv.reason)||'Working on a task')
           +(curEv&&curEv.reply?`<div class="rep" style="--acc:${acc};margin-top:5px">${esc(curEv.reply.content)}</div>`:'')
-        : `<span style="color:#8f86ad">Nothing right now — ${esc(a.statusLabel||'idle')}</span>`}
+        : (a.doneResult
+          ? `<span style="color:${acc}">✅ Just finished</span><div class="rep" style="--acc:${acc};margin-top:5px">${esc(a.doneResult)}</div>`
+          : `<span style="color:#8f86ad">Nothing right now — ${esc(a.statusLabel||'idle')}</span>`)}
     </div>`;
     const hist=mine.filter(ev=>!(working&&curEv&&ev.id===curEv.id));
     sheetChat.innerHTML=curHtml+schedHtml+

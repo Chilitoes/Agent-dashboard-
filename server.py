@@ -80,6 +80,18 @@ async def api_cron() -> JSONResponse:
     return JSONResponse({"cron": agent_status.get_cron()})
 
 
+@app.get("/api/collab")
+async def api_collab() -> JSONResponse:
+    """Active collaboration session (agents gathered in the shared Office)."""
+    return JSONResponse({"collab": agent_status.get_collab()})
+
+
+@app.get("/api/subagents")
+async def api_subagents() -> JSONResponse:
+    """Live spawned sub-agents (Hermes child sessions / MOA fan-out)."""
+    return JSONResponse({"subagents": agent_status.get_subagents()})
+
+
 @app.get("/api/feed")
 async def api_feed(limit: int = 15) -> JSONResponse:
     """Village feed: delegations + the target agent's first reply after each."""
@@ -117,7 +129,13 @@ async def api_stream(request: Request) -> StreamingResponse:
 
             if changed or heartbeat_due:
                 agents = await asyncio.to_thread(agent_status.get_agents)
-                yield _sse("agents", {"agents": agents})
+                collab = await asyncio.to_thread(agent_status.get_collab)
+                subagents = await asyncio.to_thread(agent_status.get_subagents)
+                yield _sse("agents", {
+                    "agents": agents,
+                    "collab": collab,
+                    "subagents": subagents,
+                })
                 last_push = now
 
             if changed:

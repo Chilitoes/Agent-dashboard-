@@ -70,9 +70,21 @@ DELEG_KEYWORD_FALLBACK = os.environ.get("DELEGATION_FALLBACK", "keywords").lower
 # How many recent thread-1 messages to scan for markers / keywords.
 DELEG_SCAN_LIMIT = int(os.environ.get("DELEGATION_SCAN_LIMIT", "200"))
 
-# Marker General can emit in his inline reply:  [[delegate: reminders | task text]]
+# Markers General can emit in his inline reply. General's own intelligence drives
+# these — the dashboard just reads them:
+#   [[delegate: reminders | task text]]          hand a task to one agent
+#   [[done: reminders | short result / TLDR]]    an agent finished -> flip idle now
+#   [[collab: memory, finance | task text]]      gather agents in the shared Office
 import re
 DELEG_MARKER = re.compile(r"\[\[\s*delegate\s*:\s*([a-z_]+)\s*(?:\|\s*(.*?))?\s*\]\]", re.I)
+DONE_MARKER = re.compile(r"\[\[\s*done\s*:\s*([a-z_]+)\s*(?:\|\s*(.*?))?\s*\]\]", re.I)
+COLLAB_MARKER = re.compile(r"\[\[\s*collab\s*:\s*([a-z_,\s]+?)\s*(?:\|\s*(.*?))?\s*\]\]", re.I)
+
+# A completion marker keeps an agent "just finished" (idle, TLDR shown) for this
+# long before it decays back to a plain idle age.
+DONE_WINDOW = 8 * 60
+# A collab marker keeps agents gathered in the Office for this long.
+COLLAB_WINDOW = 12 * 60
 
 # Keyword fallback: substrings in a General(thread-1) USER message -> target agent id.
 DELEGATION_KEYWORDS: dict[str, list[str]] = {
@@ -166,6 +178,88 @@ CRON_AGENT_HINTS = [
 ]
 
 
+_DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+_MONTHS = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+           "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+
+def _clock(hh: str, mm: str) -> str:
+    """'9','0' -> '9:00 AM'.  Falls back gracefully on wildcards/lists."""
+    try:
+        h, m = int(hh), int(mm)
+    except (ValueError, TypeError):
+        return f"{hh}:{mm}"
+    ap = "AM" if h < 12 else "PM"
+    h12 = h % 12 or 12
+    return f"{h12}:{m:02d} {ap}"
+
+
+def _fmt_cron(expr: str) -> str:
+    """Turn a 5-field cron expr into a human schedule.
+    '0 9 * * *' -> 'Daily 9:00 AM' ; '*/15 * * * *' -> 'Every 15 min' ;
+    '0 9 * * 1' -> 'Mon 9:00 AM'. Unknown shapes fall back to the raw expr."""
+    expr = (expr or "").strip()
+    parts = expr.split()
+    if len(parts) != 5:
+        return expr
+    mn, hr, dom, mon, dow = parts
+
+    # every-N-minutes / hourly
+    if mn.startswith("*/") and hr == "*" and dom == "*" and dow == "*":
+        return f"Every {mn[2:]} min"
+    if mn == "*" and hr == "*":
+        return "Every minute"
+    if hr.startswith("*/") and dom == "*" and dow == "*":
+        return f"Every {hr[2:]}h"
+    if hr == "*" and dom == "*" and dow == "*" and mn.isdigit():
+        return f"Hourly :{int(mn):02d}"
+
+    # a specific time-of-day
+    if mn.isdigit() and hr.isdigit():
+        t = _clock(hr, mn)
+        if dom == "*" and mon == "*" and dow == "*":
+            return f"Daily {t}"
+        if dow != "*" and dom == "*":
+            days = ",".join(_DOW[int(d) % 7] for d in dow.split(",") if d.isdigit())
+            return f"{days or dow} {t}" if days else f"{dow} {t}"
+        if dom != "*" and mon == "*":
+            return f"Day {dom} {t}"
+        if dom != "*" and mon != "*":
+            m = _MONTHS[int(mon)] if mon.isdigit() and int(mon) <= 12 else mon
+            return f"{m} {dom}, {t}"
+    return expr
+
+
+def _cron_schedule_text(job: dict) -> str:
+    """Best-effort human schedule from whatever shape jobs.json uses.
+    Handles a nested {'kind':'cron','expr':'0 9 * * *'} object, a bare cron
+    string, or an interval/'when' field."""
+    for key in ("schedule", "cron", "trigger", "interval", "when"):
+        raw = job.get(key)
+        if raw is None:
+            continue
+        if isinstance(raw, dict):
+            expr = raw.get("expr") or raw.get("cron") or raw.get("value")
+            secs = raw.get("seconds") or raw.get("every") or raw.get("interval")
+            if expr:
+                return _fmt_cron(str(expr))
+            if secs:
+                try:
+                    s = int(secs)
+                    return f"Every {s // 60} min" if s >= 60 else f"Every {s}s"
+                except (ValueError, TypeError):
+                    return str(secs)
+            # last resort: a readable field inside the dict
+            for k in ("text", "human", "label", "description"):
+                if raw.get(k):
+                    return str(raw[k])[:40]
+            return str(raw.get("kind", "cron"))
+        s = str(raw).strip()
+        if s:
+            return _fmt_cron(s) if len(s.split()) == 5 else s[:40]
+    return ""
+
+
 def _job_name(job: dict) -> str:
     return " ".join(str(job.get(k, "")) for k in ("name", "title", "label")).lower()
 
@@ -196,8 +290,7 @@ def get_cron() -> dict:
         if not isinstance(j, dict):
             continue
         name = str(j.get("name") or j.get("title") or j.get("id") or "job")[:60]
-        sched = str(j.get("schedule") or j.get("cron") or j.get("interval")
-                    or j.get("when") or "")[:40]
+        sched = _cron_schedule_text(j)
         nxt = _to_epoch(j.get("next_run") or j.get("nextRun") or j.get("next")
                         or j.get("next_run_at"))
         last = _to_epoch(j.get("last_run") or j.get("lastRun") or j.get("last")
@@ -304,6 +397,7 @@ def get_agents() -> list[dict]:
             con.close()
 
     cron_map = get_cron()
+    completions = get_completions()
 
     # most recent delegation per target agent -> (ts, reason)
     deleg_last: dict[str, tuple[float, str]] = {}
@@ -325,20 +419,35 @@ def get_agents() -> list[dict]:
         cron_ran = [j for j in my_cron if j.get("last")]
         cron_last_job = max(cron_ran, key=lambda j: j["last"]) if cron_ran else None
         cron_last = cron_last_job["last"] if cron_last_job else None
-        candidates = [t for t in (base, dl_ts, cron_last) if t is not None]
+        done = completions.get(a["id"])
+        candidates = [t for t in (base, dl_ts, cron_last, done["ts"] if done else None)
+                      if t is not None]
         last_t = max(candidates) if candidates else None
         age = (now - last_t) if last_t else None
         # working if a job is running now OR one just ran within the window
         working = (running_job is not None) or (cron_last is not None and now - cron_last <= WORKING_WINDOW)
+        # A completion marker is authoritative: General said this agent is DONE,
+        # so it overrides the "still within the working window" inference — the
+        # agent flips to idle immediately and shows its result as the TLDR.
+        done_active = bool(done and (dl_ts is None or done["ts"] >= dl_ts))
+        if done_active:
+            working = False
         has_open = (th in open_threads) and not shared
         status, label = _status(age, working, has_open, a.get("alwaysOnline", False))
+        if done_active and status == "working":
+            status, label = "idle", "Done"
         # what the agent is currently on (drives room sheet + reply context)
         current_task = ""
+        done_result = ""
+        if done_active:
+            done_result = done["result"]
+            if not a.get("alwaysOnline"):
+                label = f"Done · {_fmt_ago(now - done['ts'])}"
         if running_job:
             current_task = f"⏰ {running_job['name']}"
         elif cron_last is not None and now - cron_last <= WORKING_WINDOW:
             current_task = f"⏰ {cron_last_job['name']}"
-        elif dl and (status == "working" or (age is not None and age < DORMANT_WINDOW)):
+        elif not done_active and dl and (status == "working" or (age is not None and age < DORMANT_WINDOW)):
             current_task = dl[1]
         result.append({
             **a,
@@ -346,6 +455,7 @@ def get_agents() -> list[dict]:
             "statusLabel": label,
             "lastActive": last_t,
             "currentTask": current_task,
+            "doneResult": done_result,
         })
     return result
 
@@ -472,6 +582,126 @@ def get_delegations(limit: int = 20, since: float | None = None) -> list[dict]:
             continue
         uniq.append(e)
     return uniq[-limit:]
+
+
+# --------------------------------------------------------------------------
+# Completion markers — [[done: agent | TLDR]]
+#   General (or the agent) emits this the moment work is finished, so the agent
+#   flips to "just finished / idle" instantly instead of waiting out the 3-min
+#   working window, and the TLDR is the real result — not an inference.
+# --------------------------------------------------------------------------
+def get_completions(limit: int = 40) -> dict[str, dict]:
+    """Most recent completion per agent id: {agent: {ts, result}} — only ones
+    within DONE_WINDOW (older completions stop influencing live status)."""
+    con = _connect()
+    if con is None:
+        return {}
+    try:
+        rows = _scan_thread1_messages(con)
+    finally:
+        con.close()
+    now = time.time()
+    out: dict[str, dict] = {}
+    for r in rows:
+        role = str(r["role"]).lower()
+        if role not in ("assistant", "ai", "model", "bot", "out", "outbound"):
+            continue
+        for m in DONE_MARKER.finditer(str(r["content"] or "")):
+            target = m.group(1).lower()
+            if target not in AGENT_IDS:
+                continue
+            ts = _to_epoch(r["ts"])
+            if now - ts > DONE_WINDOW:
+                continue
+            cur = out.get(target)
+            if cur is None or ts > cur["ts"]:
+                out[target] = {"ts": ts, "result": (m.group(2) or "").strip()[:200]}
+    return out
+
+
+# --------------------------------------------------------------------------
+# Collaboration — [[collab: a, b | task]] gathers agents in the shared Office.
+# --------------------------------------------------------------------------
+def get_collab(limit: int = 20) -> dict:
+    """The active collaboration session, if any (within COLLAB_WINDOW):
+    {active, members:[ids], task, ts}. Empty dict when nobody is collaborating."""
+    con = _connect()
+    if con is None:
+        return {"active": False, "members": [], "task": "", "ts": None}
+    try:
+        rows = _scan_thread1_messages(con)
+    finally:
+        con.close()
+    now = time.time()
+    best = None
+    for r in rows:
+        role = str(r["role"]).lower()
+        if role not in ("assistant", "ai", "model", "bot", "out", "outbound"):
+            continue
+        for m in COLLAB_MARKER.finditer(str(r["content"] or "")):
+            members = [x.strip().lower() for x in m.group(1).split(",")]
+            members = [x for x in members if x in AGENT_IDS]
+            if len(members) < 1:
+                continue
+            ts = _to_epoch(r["ts"])
+            if best is None or ts > best["ts"]:
+                best = {"members": members, "task": (m.group(2) or "").strip()[:200], "ts": ts}
+    if best and now - best["ts"] <= COLLAB_WINDOW:
+        return {"active": True, **best}
+    return {"active": False, "members": [], "task": "", "ts": None}
+
+
+# --------------------------------------------------------------------------
+# Sub-agents — child sessions Hermes spawns (a MOA / parallel worker fan-out).
+#   A session whose parent belongs to ANY agent thread, grouped by parent, is a
+#   spawned worker. These populate the Sub-agent Bay when they're live.
+# --------------------------------------------------------------------------
+def get_subagents(window: int = 15 * 60) -> list[dict]:
+    """Live spawned sub-agents (child sessions started within `window`):
+    [{id, parent, parentThread, title, ts, live}]. Ordered newest first."""
+    con = _connect()
+    if con is None:
+        return []
+    now = time.time()
+    out = []
+    try:
+        q = (
+            "SELECT child.id AS cid, child.thread_id AS cth, "
+            "       child.parent_session_id AS pid, child.started_at AS started, "
+            "       child.ended_at AS ended, child.title AS title, "
+            "       parent.thread_id AS pth "
+            "FROM sessions child JOIN sessions parent "
+            "  ON child.parent_session_id = parent.id "
+            "WHERE child.parent_session_id IS NOT NULL "
+            "ORDER BY child.started_at DESC LIMIT 40"
+        )
+        rows = con.execute(q).fetchall()
+    except sqlite3.Error:
+        rows = []
+    finally:
+        con.close()
+    for r in rows:
+        ts = _to_epoch(r["started"])
+        if now - ts > window:
+            continue
+        pth = int(r["pth"]) if r["pth"] is not None else None
+        cth = int(r["cth"]) if r["cth"] is not None else None
+        # skip the plain delegation edges (parent = General) — those already show
+        # as walks; a sub-agent is a worker spawned under a NON-General thread, or
+        # a same-thread fan-out (parent thread == child thread).
+        parent_agent = next((a["id"] for a in AGENTS
+                             if a["thread"] == pth and not a.get("sharesThreadWithGeneral")), None)
+        if pth == GENERAL_THREAD and cth in THREAD_TO_AGENT:
+            continue
+        out.append({
+            "id": f"sub-{r['cid']}",
+            "parent": parent_agent or ("general" if pth == GENERAL_THREAD else None),
+            "parentThread": pth,
+            "title": (str(r["title"]) if r["title"] else "")[:80],
+            "ts": ts,
+            "live": r["ended"] is None,
+        })
+    return out
 
 
 # --------------------------------------------------------------------------
