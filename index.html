@@ -12,24 +12,27 @@
     --ok:#39ff88; --idle:#ff9e3d; --afk:#4dc9ff; --off:#4a4560;
   }
   *{box-sizing:border-box}
-  /* lock the page: no scroll, no rubber-band — the app fills the visual viewport */
-  html,body{margin:0;height:100%;width:100%;overflow:hidden;position:fixed;inset:0;
-    overscroll-behavior:none;touch-action:none;
+  /* the station is taller than the phone now (more rooms) — the page scrolls
+     vertically; only sideways rubber-band is suppressed */
+  html,body{margin:0;min-height:100%;width:100%;overscroll-behavior-x:none;
     background:
     radial-gradient(120% 60% at 50% -5%,#1c0f38 0%,transparent 60%),
     radial-gradient(130% 90% at 50% 100%,#140b28 0%,var(--bg0) 60%),var(--bg0);
+    background-attachment:fixed;
     color:var(--ink);font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;-webkit-font-smoothing:none}
-  /* app shell: header (auto) + stage (fills) + dock (auto) in one viewport column */
-  .wrap{max-width:520px;margin:0 auto;padding:6px 10px calc(6px + env(safe-area-inset-bottom));
-    height:100vh;height:100dvh;display:flex;flex-direction:column;overflow:hidden}
-  header{display:flex;align-items:center;justify-content:center;position:relative;margin-bottom:6px;flex:0 0 auto}
+  /* header (sticky) + stage (intrinsic pixel height) scroll under a fixed dock */
+  .wrap{max-width:520px;margin:0 auto;padding:0 10px;
+    padding-bottom:calc(66px + env(safe-area-inset-bottom))}
+  header{display:flex;align-items:center;justify-content:center;position:sticky;top:0;z-index:15;
+    padding:6px 0;margin-bottom:4px;flex:0 0 auto;
+    background:linear-gradient(180deg,var(--bg0) 60%,transparent)}
   h1{font-size:19px;margin:0;letter-spacing:6px;color:var(--gold);font-weight:800;
     text-shadow:0 0 14px rgba(255,213,46,.65),2px 2px 0 #000}
   .conn{position:absolute;right:2px;top:50%;transform:translateY(-50%);display:flex;gap:6px;align-items:center;font-size:10px;color:var(--muted)}
   .conn .led{width:8px;height:8px;border-radius:50%;background:var(--off)}
   .conn.live .led{background:var(--ok);box-shadow:0 0 9px var(--ok)}
 
-  .stage{position:relative;width:100%;flex:1 1 auto;min-height:0}
+  .stage{position:relative;width:100%}
   .stage canvas{position:absolute;inset:0;width:100%;height:100%;image-rendering:pixelated}
   #bg{z-index:1}#fg{z-index:2}
   .stage::after{content:"";position:absolute;inset:0;z-index:3;pointer-events:none;border-radius:4px;
@@ -52,8 +55,9 @@
     border:6px solid transparent;border-top-color:inherit;border-bottom:0}
   .rbubble.show{opacity:1}
 
-  /* ---------- village feed dock (in-flow pill; body overlays upward) ---------- */
-  .dock{position:relative;flex:0 0 auto;margin-top:7px;z-index:20;
+  /* ---------- village feed dock (fixed pill; body overlays upward) ---------- */
+  .dock{position:fixed;left:50%;transform:translateX(-50%);z-index:20;
+    bottom:calc(7px + env(safe-area-inset-bottom));width:calc(100% - 20px);max-width:500px;
     background:linear-gradient(180deg,rgba(26,16,46,.97),rgba(14,8,26,.97));
     border:1px solid rgba(233,53,193,.55);border-radius:16px;
     box-shadow:0 0 22px rgba(233,53,193,.30),0 8px 30px rgba(4,2,12,.7);backdrop-filter:blur(8px)}
@@ -217,15 +221,29 @@ let W=0,H=0,dpr=1, spineX=0, spineW=0, spineTop=0, spineBot=0;
 const seenDeleg=new Set();
 const DOT_HEX={working:'#39ff88',active:'#39ff88',idle:'#ff9e3d',afk:'#4dc9ff',offline:'#4a4560'};
 
-/* Bento floor plan: full-width bands (varied heights) split into rooms of
-   varied widths with OFFSET dividers, so rooms are all different sizes yet
-   tile the hull with zero empty space. hf = band height as a multiple of W. */
-const BANDS=[
-  {hf:0.185, cols:[['general',1.00]]},
-  {hf:0.300, cols:[['memory',0.58],['finance',0.42]]},
-  {hf:0.250, cols:[['predictions',0.39],['reminders',0.61]]},
-  {hf:0.280, cols:[['books',0.64],['health',0.36]]},
-  {hf:0.300, cols:[['japanese',0.45],['coding',0.55]]},
+/* Two non-agent rooms: the shared Office (collaboration) and the Sub-agent Bay.
+   They aren't Hermes threads — the frontend drives them from COLLAB / SUBAGENTS. */
+const SPECIAL={
+  office:{id:'office',name:'Office',emoji:'🛋️',neon:'#2de2e6',special:true,
+    description:'Shared war-room — agents gather here to collaborate on a task.'},
+  subagents:{id:'subagents',name:'Sub-Agents',emoji:'🤖',neon:'#b026ff',special:true,
+    description:'Spawned worker sessions (Hermes MOA / parallel fan-out).'},
+};
+function cfgOf(id){return byId[id]||SPECIAL[id]||{id,name:id,neon:'#8f86ad'};}
+const ALL_ROOM_IDS=['general','memory','finance','reminders','predictions',
+  'books','health','japanese','coding','office','subagents'];
+
+/* Packed floor plan. Each ROW is a full-width band split by a central walkable
+   corridor into a LEFT and RIGHT zone; a zone is 1 room, or 2 rooms STACKED
+   (top/bottom) — that's what makes the sizes varied, non-symmetric and gap-free.
+   `full` spans the whole width (the General hub, above the corridor). hf = band
+   height as a fraction of W. The station is intrinsically tall — the page scrolls. */
+const ROWS=[
+  {hf:0.180, full:'general'},
+  {hf:0.480, L:['memory'],              R:['finance','reminders'], rsplit:0.48},
+  {hf:0.500, L:['predictions','books'], R:['health'],              lsplit:0.46},
+  {hf:0.300, L:['japanese'],            R:['coding']},
+  {hf:0.340, L:['office'],              R:['subagents']},
 ];
 
 /* ============ boot ============ */
@@ -245,41 +263,43 @@ async function boot(){
   requestAnimationFrame(loop);
 }
 
-/* ============ layout: packed bento floor plan (fits the viewport) ============ */
+/* ============ layout: packed floor plan (intrinsic height, page scrolls) ====== */
 let HULLX=0, HULLW=0, HULLY=0, SHAFTX=0, SHAFTW=0, SHAFTCX=0, SHAFT_TOP=0, SHAFT_BOT=0;
 function layout(){
   W=stage.clientWidth;
-  // the flex shell already sized the stage to exactly the leftover space —
-  // just read it, so this is correct on iOS regardless of the dynamic toolbar
-  const avail=Math.max(320, stage.clientHeight);
-  const margin=Math.round(avail*0.022);
+  const margin=Math.round(W*0.02);
   HULLX=5; HULLW=W-10; HULLY=margin;
-  // central lift shaft runs down the middle; rooms dock on either side of it
-  SHAFTW=Math.round(W*0.09); SHAFTCX=Math.round(W/2); SHAFTX=SHAFTCX-Math.round(SHAFTW/2);
-  const bandsTotal=avail-2*margin;
-  const hfSum=BANDS.reduce((a,b)=>a+b.hf,0);
+  // central corridor: a walkable hallway (no lift), set a touch left of centre
+  SHAFTW=Math.max(22,Math.round(W*0.075)); SHAFTCX=Math.round(W*0.475); SHAFTX=SHAFTCX-Math.round(SHAFTW/2);
+  const lw=SHAFTX-HULLX, rw=(HULLX+HULLW)-(SHAFTX+SHAFTW);
   rooms={};
+  const mkRoom=(id,x,y,w,h,side)=>{
+    const feetY=y+h-7;
+    const doorX = side==='L' ? SHAFTX-Math.round(w*0.08)
+                : side==='R' ? SHAFTX+SHAFTW+Math.round(w*0.08)
+                : SHAFTCX;
+    rooms[id]={x,y,w,h,feetY,cx:x+w/2,side,doorX,
+      walkMin:x+w*0.12, walkMax:x+w*0.88, amb:{}};
+  };
+  const stackZone=(ids,zx,zw,y,bh,side,split)=>{
+    if(ids.length===1){ mkRoom(ids[0],zx,y,zw,bh,side); return; }
+    const sh=Math.round(bh*(split||0.5));
+    mkRoom(ids[0],zx,y,zw,sh,side);
+    mkRoom(ids[1],zx,y+sh,zw,bh-sh,side);
+  };
   let y=HULLY, lastFeetY=HULLY;
-  BANDS.forEach((band,bi)=>{
-    const last=(bi===BANDS.length-1);
-    const bh=last ? (HULLY+bandsTotal-y) : Math.round(bandsTotal*band.hf/hfSum);
-    const feetY=y+bh-7; lastFeetY=feetY;
-    if(band.cols.length===1){
-      const id=band.cols[0][0];
-      rooms[id]={x:HULLX,y,w:HULLW,h:bh,feetY,cx:HULLX+HULLW/2,side:'top',
-        doorX:SHAFTCX,walkMin:HULLX+HULLW*0.10,walkMax:HULLX+HULLW*0.90,amb:{}};
-    }else{
-      const lid=band.cols[0][0], rid=band.cols[1][0];
-      const lw=SHAFTX-HULLX, rw=(HULLX+HULLW)-(SHAFTX+SHAFTW);
-      rooms[lid]={x:HULLX,y,w:lw,h:bh,feetY,cx:HULLX+lw/2,side:'L',
-        doorX:SHAFTX-Math.round(lw*0.10),walkMin:HULLX+lw*0.13,walkMax:SHAFTX-lw*0.10,amb:{}};
-      rooms[rid]={x:SHAFTX+SHAFTW,y,w:rw,h:bh,feetY,cx:SHAFTX+SHAFTW+rw/2,side:'R',
-        doorX:SHAFTX+SHAFTW+Math.round(rw*0.10),walkMin:SHAFTX+SHAFTW+rw*0.10,walkMax:SHAFTX+SHAFTW+rw*0.87,amb:{}};
+  ROWS.forEach(row=>{
+    const bh=Math.round(W*row.hf);
+    if(row.full){ mkRoom(row.full,HULLX,y,HULLW,bh,'top'); lastFeetY=y+bh-7; }
+    else{
+      stackZone(row.L,HULLX,lw,y,bh,'L',row.lsplit);
+      stackZone(row.R,SHAFTX+SHAFTW,rw,y,bh,'R',row.rsplit);
+      lastFeetY=y+bh-7;
     }
     y+=bh;
   });
-  SHAFT_TOP=rooms.general.feetY-4;         // lift serves from General's deck…
-  SHAFT_BOT=lastFeetY+6;                    // …down to the bottom floor
+  SHAFT_TOP=rooms.general.feetY-4;          // corridor runs from General's deck…
+  SHAFT_BOT=lastFeetY+6;                     // …down to the bottom floor
   H=Math.round(y+margin);
   stage.style.height=H+'px';
   dpr=Math.min(window.devicePixelRatio||1,2);
@@ -311,36 +331,32 @@ function drawBackground(){
   // hull outer frame
   R(bctx,HULLX-3,HULLY-3,HULLW+6,H-HULLY-W*0.02,'#0c0820');
   bctx.strokeStyle='#2b1c47';bctx.lineWidth=3;bctx.strokeRect(HULLX-2.5,HULLY-2.5,HULLW+5,H-HULLY-W*0.02-1);
-  AGENTS.forEach(a=>{const r=rooms[a.id];if(r)drawRoom(a,r);});
-  drawShaft();
+  ALL_ROOM_IDS.forEach(id=>{const r=rooms[id];if(!r)return;
+    if(SPECIAL[id])drawSpecialRoom(id,r); else drawRoom(cfgOf(id),r);});
+  drawCorridor();
   // hull edge neon
   bctx.save();bctx.shadowColor='#b026ff';bctx.shadowBlur=7;
   bctx.strokeStyle='rgba(176,38,255,.5)';bctx.lineWidth=1.5;
   bctx.strokeRect(HULLX-2.5,HULLY-2.5,HULLW+5,H-HULLY-W*0.02-1);bctx.restore();
 }
 
-/* central lift shaft + a sliding door on every room's shaft-facing wall */
-const DOOR_H_FRAC=0.34;   // door opening height as a fraction of walk headroom
-function drawShaft(){
+/* central walkable corridor + a doorway on every room's corridor-facing wall.
+   No lift car — agents just walk the hall between rooms. */
+function drawCorridor(){
   const x=SHAFTX, w=SHAFTW, top=SHAFT_TOP-6, bot=SHAFT_BOT+8;
-  // shaft interior
-  vgrad(bctx,x,top,w,bot-top,'#0e0a1c','#080512');
-  R(bctx,x,top,1.5,bot-top,'#241a3d');R(bctx,x+w-1.5,top,1.5,bot-top,'#241a3d');
-  // guide rails + counterweight cable
-  R(bctx,x+3,top,1.5,bot-top,'#1a1330');R(bctx,x+w-4.5,top,1.5,bot-top,'#1a1330');
-  R(bctx,x+w/2-0.5,top,1,bot-top,'rgba(45,226,230,.18)');
-  // floor stops + call panels at each level
-  AGENTS.forEach(a=>{const r=rooms[a.id];if(!r||r.side==='top')return;
-    const ly=r.feetY+3;
-    R(bctx,x+2,ly,w-4,1.5,'rgba(45,226,230,.35)');           // landing line
-    R(bctx,x+w/2-3,ly-4,6,2,'#1a1330');                       // call button housing
-    R(bctx,x+w/2-2,ly-3.4,1.6,1.6,'rgba(57,255,136,.6)');});
-  // shaft header sign + top pulley
+  // hallway floor + side walls
+  vgrad(bctx,x,top,w,bot-top,'#15111f','#0b0816');
+  R(bctx,x,top,1.5,bot-top,'#2b1f45');R(bctx,x+w-1.5,top,1.5,bot-top,'#2b1f45');
+  R(bctx,x+w/2-0.5,top,1,bot-top,'rgba(45,226,230,.10)');   // centre guide line
+  // grated floor + running ceiling lights
+  for(let ly=top+8;ly<bot;ly+=9)R(bctx,x+2,ly,w-4,1,'rgba(0,0,0,.28)');
+  for(let ly=top+16;ly<bot;ly+=30){bctx.save();bctx.shadowColor='#2de2e6';bctx.shadowBlur=5;
+    R(bctx,x+3,ly,w-6,1.3,'rgba(45,226,230,.5)');bctx.restore();}
+  // header plate
   R(bctx,x-2,top,w+4,5,'#1a1330');R(bctx,x-2,top+5,w+4,1,'rgba(45,226,230,.4)');
-  bctx.fillStyle='#4a3a6a';bctx.beginPath();bctx.arc(SHAFTCX,top+3,2.4,0,7);bctx.fill();
-  // doors: an opening in each room's shaft-facing wall
-  AGENTS.forEach(a=>{const r=rooms[a.id];if(!r)return;
-    const dh=(r.h*0.66)*DOOR_H_FRAC+r.h*0.10, dy=r.feetY+4-dh;
+  // doorway in each room's corridor-facing wall (at that room's floor level)
+  ALL_ROOM_IDS.forEach(id=>{const r=rooms[id];if(!r)return;
+    const dh=Math.min(r.h*0.34,22)+6, dy=r.feetY+4-dh;
     let dx;
     if(r.side==='L') dx=SHAFTX-2; else if(r.side==='R') dx=SHAFTX+SHAFTW-3; else return;
     const dw=5;
@@ -349,8 +365,58 @@ function drawShaft(){
     R(bctx,dx,dy,dw,1.5,'#2de2e6');                            // lintel light
     R(bctx,r.side==='L'?dx:dx+dw-1.5,dy,1.5,dh,'rgba(45,226,230,.6)');
     bctx.restore();
-    R(bctx,dx+dw/2-0.4,dy+1.5,0.8,dh-1.5,'rgba(45,226,230,.25)'); // door seam
   });
+}
+
+/* ---- the two non-agent rooms (Office / Sub-agent Bay) ---- */
+function drawSpecialRoom(id,r){
+  const cfg=SPECIAL[id], neon=cfg.neon;
+  const active = id==='office' ? COLLAB.active : SUBAGENTS.length>0;
+  const st = active?'working':'idle', lit = active?1:0.9;
+  const {x,y,w,h}=r, floorTop=y+h*0.66, inset=Math.min(w*0.055,12);
+  vgrad(bctx,x,y,w,floorTop-y,dim(neon,0.11+0.05*lit),dim(neon,0.05));
+  const wy=y+h*0.15, wh=Math.min(h*0.22,26);
+  drawWindows(id,x,y,w,wy,wh,lit,neon);
+  R(bctx,x,y,w,3,'#0c0818');
+  ceilingRig(x,y,w,h,neon,lit);
+  if(lit>0.4){const lwd=w*0.32, lx=x+w/2-lwd/2;
+    bctx.save();bctx.shadowColor=neon;bctx.shadowBlur=8;R(bctx,lx,y+3,lwd,2,neon);bctx.restore();}
+  const fgr=bctx.createLinearGradient(0,floorTop,0,y+h);
+  fgr.addColorStop(0,dim(neon,0.15+0.08*lit));fgr.addColorStop(1,dim(neon,0.06));
+  bctx.fillStyle=fgr;bctx.beginPath();
+  bctx.moveTo(x+inset,floorTop);bctx.lineTo(x+w-inset,floorTop);
+  bctx.lineTo(x+w,y+h);bctx.lineTo(x,y+h);bctx.closePath();bctx.fill();
+  R(bctx,x,floorTop-1,w,1,'rgba(0,0,0,.35)');
+  vgrad(bctx,x,y,6,h,'rgba(0,0,0,.4)','rgba(0,0,0,.2)');
+  vgrad(bctx,x+w-6,y,6,h,'rgba(0,0,0,.4)','rgba(0,0,0,.2)');
+  (id==='office'?officeInterior:subagentInterior)(r,lit,neon);
+  foreRail(x,y,w,h,neon,lit);
+  R(bctx,x,y,w,2,'rgba(255,255,255,.06)');R(bctx,x,y+h-2,w,2,'rgba(0,0,0,.45)');
+  bctx.save();bctx.shadowColor=neon;bctx.shadowBlur=lit>0.4?6:0;
+  bctx.strokeStyle=rgba(neon,0.55);bctx.lineWidth=1.5;bctx.strokeRect(x+0.75,y+0.75,w-1.5,h-1.5);bctx.restore();
+  R(bctx,x,y,w,1,'#0a0614');R(bctx,x,y,1,h,'#0a0614');
+  roomSign(r,cfg.name,st,neon);
+}
+function officeInterior(r,lit,neon){const{x,y,w,h}=r;
+  const cx=x+w*0.5, cy=y+h*0.60, rx=w*0.28, ry=h*0.11;
+  bctx.fillStyle='rgba(45,226,230,.05)';bctx.beginPath();bctx.ellipse(cx,cy+3,rx*1.3,ry*1.7,0,0,7);bctx.fill();
+  bctx.fillStyle='#1b2740';bctx.beginPath();bctx.ellipse(cx,cy,rx,ry,0,0,7);bctx.fill();
+  bctx.strokeStyle=rgba(neon,0.6);bctx.lineWidth=1.4;bctx.beginPath();bctx.ellipse(cx,cy,rx,ry,0,0,7);bctx.stroke();
+  if(COLLAB.active){bctx.save();bctx.shadowColor=neon;bctx.shadowBlur=9;
+    R(bctx,cx-w*0.06,cy-5,w*0.12,9,rgba(neon,0.3));bctx.restore();}
+  // wall board with agenda lines
+  R(bctx,x+w*0.30,y+h*0.28,w*0.40,h*0.15,'#0b1226');
+  bctx.strokeStyle=rgba(neon,0.5);bctx.lineWidth=1;bctx.strokeRect(x+w*0.30,y+h*0.28,w*0.40,h*0.15);
+  for(let i=0;i<3;i++)R(bctx,x+w*0.33,y+h*0.31+i*h*0.03,w*0.34*(0.9-i*0.2),1.4,rgba(neon,0.5));
+  r.amb.tableCx=cx;r.amb.tableCy=cy;r.amb.tableRx=rx;r.amb.tableRy=ry;
+}
+function subagentInterior(r,lit,neon){const{x,y,w,h}=r;
+  const n=4, py=y+h*0.36, pw=w*0.17, ph=h*0.30;
+  r.amb.pods=[];
+  for(let i=0;i<n;i++){const px=x+w*(0.09+i*0.215);
+    R(bctx,px,py,pw,ph,'#160f28');R(bctx,px,py,pw,3,dim(neon,0.95));
+    for(let j=0;j<3;j++)R(bctx,px+3,py+7+j*5,pw-6,2,'rgba(176,38,255,.22)');
+    r.amb.pods.push([px+pw/2,r.feetY]);}
 }
 
 function drawSpace(){
@@ -373,13 +439,16 @@ function starWindow(x,y,w,h){
   for(let i=0;i<Math.max(3,w/16);i++)R(bctx,x+hash2(i,x|0)*w,y+hash2(x|0,i)*h,1.3,1.3,`rgba(220,210,255,${0.35+hash2(i,3)*0.4})`);
 }
 function roomSign(r,name,st,neon){
+  // top-LEFT corner plate (keeps the centre-top clear for the agent's name tag)
   const label=name.toUpperCase(), fs=Math.max(7,Math.min(9.5,r.w*0.055));
   bctx.font=`800 ${fs}px ui-monospace,monospace`;
-  const tw=bctx.measureText(label).width, sw=tw+22, sx=r.x+r.w/2-sw/2, sy=r.y+5;
-  R(bctx,sx,sy,sw,fs+8,'rgba(4,2,12,.9)');
+  const tw=bctx.measureText(label).width, sw=tw+20, sx=r.x+6, sy=r.y+5, sh=fs+7;
+  R(bctx,sx,sy,sw,sh,'rgba(4,2,12,.92)');
   R(bctx,sx,sy,sw,1,dim(neon,0.9));
-  neonText(bctx,label,r.x+r.w/2+4,sy+(fs+8)/2+0.5,fs,neon,8);
-  bctx.fillStyle=DOT_HEX[st];bctx.beginPath();bctx.arc(sx+8,sy+(fs+8)/2,2.6,0,7);bctx.fill();
+  bctx.fillStyle=DOT_HEX[st];bctx.beginPath();bctx.arc(sx+8,sy+sh/2,2.6,0,7);bctx.fill();
+  bctx.save();bctx.font=`800 ${fs}px ui-monospace,monospace`;bctx.textAlign='left';bctx.textBaseline='middle';
+  bctx.shadowColor=neon;bctx.shadowBlur=7;bctx.fillStyle=neon;
+  bctx.fillText(label,sx+14,sy+sh/2+0.5);bctx.restore();
 }
 /* ---- per-room wall materials ---- */
 function wallTex(id,x,y,w,hh){
@@ -447,7 +516,8 @@ function drawWindows(id,x,y,w,wy,wh,lit,neon){
   }
 }
 const ROOMWIN={general:'wide',finance:'arch',memory:'slits',reminders:'squares',
-  predictions:'round',books:'arch',health:'squares',japanese:'porthole',coding:'slits'};
+  predictions:'round',books:'arch',health:'squares',japanese:'porthole',coding:'slits',
+  office:'wide',subagents:'porthole'};
 
 /* ===== density layers (drawn on the bg canvas — only on status change) ===== */
 function ceilingRig(x,y,w,h,neon,lit){
@@ -782,16 +852,6 @@ function taskChip(ctx,cx,feetY,s,text,accent){
   ctx.fillStyle='#efeaff';ctx.textAlign='left';ctx.textBaseline='middle';
   ctx.fillText(t,x+11,y+6.4);ctx.restore();
 }
-/* lift car drawn on the fg around whoever is riding the shaft */
-function drawLiftCar(cy){
-  const carH=Math.max(18,W*0.048), x=SHAFTX+2, w=SHAFTW-4, y=cy-carH+7;
-  R(fctx,SHAFTCX-0.5,SHAFT_TOP-6,1,Math.max(0,y-(SHAFT_TOP-6)),'rgba(180,170,220,.35)');   // cable
-  fctx.fillStyle='#171125';rr(fctx,x,y,w,carH,3);fctx.fill();
-  fctx.save();fctx.shadowColor='#2de2e6';fctx.shadowBlur=6;
-  fctx.strokeStyle='rgba(45,226,230,.7)';fctx.lineWidth=1.2;rr(fctx,x+0.6,y+0.6,w-1.2,carH-1.2,3);fctx.stroke();fctx.restore();
-  R(fctx,x+2,y+1.5,w-4,1,'#2de2e6');                                          // top light
-  R(fctx,SHAFTCX-0.4,y+2,0.8,carH-4,'rgba(45,226,230,.3)');                   // door seam
-}
 /* canvas speech bubble (used for completion "Done!" pops above a room) */
 function speechBubble(ctx,cx,baseY,text,accent,alpha){
   ctx.save();ctx.globalAlpha=alpha;
@@ -926,7 +986,7 @@ function shaftRoute(fromRoom, fromX, toRoom, toX){
   return p;
 }
 function planWalk(ev){
-  const tr=rooms[ev.to]; if(!tr)return false;
+  const tr=rooms[ev.to]; if(!tr){walker.state='home';walker.task=null;return false;}
   walker.path=shaftRoute(rooms.general, walker.x, tr, tr.cx);
   walker.seg=0;walker.state='out';walker.task=ev;
   return true;
@@ -937,7 +997,14 @@ function stepWalker(dt){
     const o=actors.general, r=rooms.general;
     stepActor({id:'general'},o,dt);
     walker.x=o.x;walker.y=r.feetY;
-    if(walkQueue.length)planWalk(walkQueue.shift());
+    // pick up the next hand-off with a short "deciding who to delegate" beat
+    if(walkQueue.length){walker.task=walkQueue.shift();walker.state='think';walker.thinkT=1.2;}
+    return;
+  }
+  if(walker.state==='think'){
+    walker.thinkT-=dt;
+    const tr=rooms[walker.task.to]; if(tr)walker.facing=tr.cx>=walker.x?1:-1;
+    if(walker.thinkT<=0)planWalk(walker.task);
     return;
   }
   if(walker.state==='visit'){
@@ -962,6 +1029,57 @@ function stepWalker(dt){
     walker.x+=dx/dist*step;walker.y+=dy/dist*step;
     if(Math.abs(dx)>1)walker.facing=dx>0?1:-1;
   }
+}
+
+/* ---- collaboration: members walk to the Office, gather, then walk home ---- */
+const collabMovers={};   // id -> {state,x,y,path,seg,facing,seatX,seatY}
+function officeSeat(i,n){
+  const o=rooms.office, m=o&&o.amb;
+  if(!o||!m||m.tableCx==null)return {x:(o?o.cx:0),y:(o?o.feetY:0)};
+  const spread=Math.max(1,Math.min(n,4)), t=i-(spread-1)/2;
+  const gap=Math.min(o.w*0.34,(o.w*0.80)/spread);   // wide enough that name tags clear
+  return {x:m.tableCx+t*gap, y:o.feetY-2-(spread>2&&i%2?7:0)};
+}
+function stepCollab(dt){
+  const members=COLLAB.active?COLLAB.members.filter(id=>rooms[id]):[];
+  members.forEach((id,i)=>{
+    const seat=officeSeat(i,members.length);
+    let mv=collabMovers[id];
+    if(!mv){
+      const hr=rooms[id], hx=(actors[id]&&actors[id].x)||hr.cx;
+      collabMovers[id]={state:'toOffice',x:hx,y:hr.feetY,seg:0,facing:1,
+        seatX:seat.x,seatY:seat.y,path:shaftRoute(hr,hx,rooms.office,seat.x)};
+    }else if(mv.state==='seated'||mv.state==='toOffice'){mv.seatX=seat.x;mv.seatY=seat.y;}
+  });
+  Object.keys(collabMovers).forEach(id=>{const mv=collabMovers[id];
+    if(!members.includes(id)&&mv.state!=='home'){const hr=rooms[id];
+      mv.state='home';mv.seg=0;
+      mv.path=shaftRoute(rooms.office,mv.x,hr,(actors[id]&&actors[id].x)||hr.cx);}});
+  const speed=W*0.24;
+  Object.entries(collabMovers).forEach(([id,mv])=>{
+    if(mv.state==='seated'){mv.x+=(mv.seatX-mv.x)*Math.min(1,dt*4);return;}
+    const tgt=mv.path[mv.seg];
+    if(!tgt){if(mv.state==='home'){if(actors[id])actors[id].x=mv.x;delete collabMovers[id];}else mv.state='seated';return;}
+    const dx=tgt.x-mv.x,dy=tgt.y-mv.y,dist=Math.hypot(dx,dy),step=speed*dt*(Math.abs(dy)>1?1.4:1);
+    if(dist<=step){mv.x=tgt.x;mv.y=tgt.y;mv.seg++;
+      if(mv.seg>=mv.path.length){
+        if(mv.state==='toOffice')mv.state='seated';
+        else if(mv.state==='home'){if(actors[id])actors[id].x=mv.x;delete collabMovers[id];}}
+    }else{mv.x+=dx/dist*step;mv.y+=dy/dist*step;if(Math.abs(dx)>1)mv.facing=dx>0?1:-1;}
+  });
+}
+/* small spawned-worker sprite for the Sub-agent Bay */
+function robotChar(ctx,cx,feetY,s,time,seed){
+  const P=(gx,gy,gw,gh,c)=>{ctx.fillStyle=c;ctx.fillRect(Math.round(cx+gx*s),Math.round(feetY+gy*s),Math.ceil(gw*s),Math.ceil(gh*s));};
+  ctx.fillStyle='rgba(0,0,0,.42)';ctx.beginPath();ctx.ellipse(cx,feetY+1,s*2.3,s*0.8,0,0,7);ctx.fill();
+  const bob=Math.sin(time*3+seed*2)*0.5;
+  P(-1.7,-3.4+bob,3.4,3.2,'#241a3d');                       // body
+  P(-1.5,-2.6+bob,3,1,'rgba(176,38,255,.5)');               // chest light
+  P(-2.0,-5.8+bob,4,2.6,'#332457');                         // head
+  const blink=0.45+0.5*Math.max(0,Math.sin(time*3+seed));
+  P(-1.2,-5.0+bob,1,1,`rgba(176,38,255,${blink})`);P(0.3,-5.0+bob,1,1,`rgba(176,38,255,${blink})`);
+  P(-0.3,-6.9+bob,0.6,1.2,'#b026ff');P(-0.6,-7.3+bob,1.2,0.6,'#c77dff');  // antenna
+  P(-2.4,-3.2+bob,0.8,2.2,'#241a3d');P(1.6,-3.2+bob,0.8,2.2,'#241a3d');   // arms
 }
 
 /* ============ ambient animation (fg) ============ */
@@ -1082,15 +1200,14 @@ function loop(ts){
   if(visitor){ // draw the travelling visitor (skipped in the normal loop below)
     const va=byId[visitor.id]||{};
     const vmoving=visitor.state!=='stay';
-    const vInShaft=vmoving&&Math.abs(visitor.x-SHAFTCX)<SHAFTW*0.6;
-    const vbob=(vmoving&&!vInShaft)?Math.abs(Math.sin(time*9))*1.3:0;
-    if(vInShaft)drawLiftCar(visitor.y);
-    drawChar(fctx,visitor.x,visitor.y-vbob,s,visitor.id,vmoving&&!vInShaft,time*11,visitor.facing,false,time,3.1);
+    const vbob=vmoving?Math.abs(Math.sin(time*9))*1.3:0;
+    drawChar(fctx,visitor.x,visitor.y-vbob,s,visitor.id,vmoving,time*11,visitor.facing,false,time,3.1);
     nameTag(fctx,visitor.x,visitor.y-vbob,s,va.name||visitor.id,va.statusLabel||'',DOT_HEX[va.status||'idle']);
   }
   AGENTS.forEach(a=>{
     if(a.id==='general')return;
     if(visitor&&a.id===visitor.id)return;
+    if(collabMovers[a.id])return;             // off collaborating in the Office
     const info=byId[a.id]||{}, st=info.status||'offline';
     const o=actors[a.id], r=rooms[a.id]; if(!o||!r)return;
     stepActor(a,o,dt);
@@ -1114,12 +1231,28 @@ function loop(ts){
     } else if(db && ts>=db.until) delete doneBubble[a.id];
   });
 
+  // collaboration: members walking to / gathered in the Office
+  stepCollab(dt);
+  Object.entries(collabMovers).forEach(([id,mv])=>{
+    const info=byId[id]||{}, seated=mv.state==='seated';
+    const mbob=seated?0:Math.abs(Math.sin(time*10+id.length))*1.4;
+    drawChar(fctx,mv.x,mv.y-mbob,s,id,!seated,time*11,mv.facing,seated,time,3.3);
+    nameTag(fctx,mv.x,mv.y-mbob,s,info.name||id,seated?'In office':'→ Office',DOT_HEX[info.status]||'#2de2e6');
+    if(seated)for(let i=0;i<3;i++){const on=Math.sin(time*4-i*0.9)>0;
+      fctx.fillStyle=on?'rgba(45,226,230,.9)':'rgba(45,226,230,.25)';
+      fctx.fillRect(mv.x-4+i*4,mv.y-16*s,2.2,2.2);}
+  });
+  // sub-agent workers at their pods
+  if(rooms.subagents&&rooms.subagents.amb.pods){
+    const pods=rooms.subagents.amb.pods;
+    SUBAGENTS.slice(0,pods.length).forEach((sg,i)=>{const[px,py]=pods[i];
+      robotChar(fctx,px,py-2,s*0.8,time,i+1);});
+  }
+
   stepWalker(dt);
   const moving=walker.state==='out'||walker.state==='back';
-  const inShaft=moving&&Math.abs(walker.x-SHAFTCX)<SHAFTW*0.6;
-  const wbob=inShaft?0:(moving?Math.abs(Math.sin(time*10))*1.5:0);
-  if(inShaft)drawLiftCar(walker.y);                 // draw the car around the rider
-  drawChar(fctx,walker.x,walker.y-wbob,s*1.1,'general',moving&&!inShaft,time*11,walker.facing,true,time,0.3);
+  const wbob=moving?Math.abs(Math.sin(time*10))*1.5:0;
+  drawChar(fctx,walker.x,walker.y-wbob,s*1.1,'general',moving,time*11,walker.facing,true,time,0.3);
   {const gi=byId.general||{};nameTag(fctx,walker.x,walker.y-wbob,s*1.1,'General',gi.statusLabel||'',DOT_HEX[gi.status||'active']);}
 
   if(arriveFx){arriveFx.t+=dt;const k=arriveFx.t/0.6;
@@ -1127,8 +1260,14 @@ function loop(ts){
       fctx.beginPath();fctx.arc(arriveFx.x,arriveFx.y-6*s,k*28,0,7);fctx.stroke();}
     else arriveFx=null;}
 
-  // General's task bubble (while travelling / delivering)
-  if(walker.task&&walker.state!=='home'){
+  // General's bubble: a "deciding" beat, then the task while travelling / delivering
+  if(walker.state==='think'){
+    const nm=(byId[walker.task.to]||{}).name||walker.task.to;
+    bubble.textContent=`🤔 delegating to ${nm}…`;
+    bubble.classList.add('show');
+    bubble.style.left=walker.x+'px';bubble.style.top=(walker.y-15*s)+'px';
+  } else if(walker.task&&(walker.state==='out'||walker.state==='back')){
+    // while travelling only — on arrival we hand the spotlight to the agent's reply
     bubble.textContent=walker.task.reason||('→ '+((byId[walker.task.to]||{}).name||walker.task.to));
     bubble.classList.add('show');
     bubble.style.left=walker.x+'px';bubble.style.top=(walker.y-wbob-15*s)+'px';
@@ -1246,8 +1385,8 @@ function onStageClick(e){
   // Todoist terminal in the Reminders room takes priority over the room sheet
   const tr=(rooms.reminders||{}).amb&&rooms.reminders.amb.todoRect;
   if(tr&&x>=tr.x-3&&x<=tr.x+tr.w+3&&y>=tr.y-3&&y<=tr.y+tr.h+3){openTodoist();return;}
-  for(const a of AGENTS){const r=rooms[a.id];if(!r)continue;
-    if(x>=r.x-4&&x<=r.x+r.w+4&&y>=r.y-6&&y<=r.y+r.h+6){openSheet(a.id);return;}}
+  for(const id of ALL_ROOM_IDS){const r=rooms[id];if(!r)continue;
+    if(x>=r.x-4&&x<=r.x+r.w+4&&y>=r.y-6&&y<=r.y+r.h+6){openSheet(id);return;}}
 }
 /* ---- Todoist popup ---- */
 const todoBack=document.getElementById('todoBack'),todoBody=document.getElementById('todoBody'),todoCount=document.getElementById('todoCount');
@@ -1269,16 +1408,44 @@ async function openTodoist(){
 }
 function closeTodoist(){todoBack.classList.remove('open');}
 todoBack.addEventListener('click',e=>{if(e.target===todoBack)closeTodoist();});
+function renderSpecialSheet(id){
+  if(id==='office'){
+    const c=COLLAB;
+    sheetChat.innerHTML=c.active
+      ? `<div class="curcard" style="--acc:#2de2e6">
+          <div class="lab" style="color:#2de2e6">ACTIVE COLLABORATION</div>
+          <b>${esc(c.members.map(m=>`${(byId[m]||{}).emoji||''} ${(byId[m]||{}).name||m}`).join('  +  '))}</b>
+          <div class="rep" style="--acc:#2de2e6;margin-top:5px">${esc(c.task||'working together')}</div></div>`
+      : `<div class="lbl">NO ACTIVE COLLABORATION</div>
+         <div style="padding:10px 4px;color:var(--muted);font-size:11px;line-height:1.5">
+         Agents gather here when General emits <b style="color:#2de2e6">[[collab: a, b | task]]</b>.</div>`;
+  }else{
+    const subs=SUBAGENTS;
+    sheetChat.innerHTML='<div class="lbl">SPAWNED WORKERS</div>'+
+      (subs.length?subs.map(sg=>`<div class="trow" style="--acc:#b026ff">
+        <div class="meta"><span style="color:#b026ff">🤖 ${esc((byId[sg.parent]||{}).name||sg.parent||'worker')}</span><span>${rel(sg.ts)}</span></div>
+        ${esc(sg.title||'sub-agent session')}${sg.live?' <span style="color:#39ff88">· live</span>':''}</div>`).join('')
+       :`<div class="lbl">NO SUB-AGENTS RIGHT NOW</div>
+         <div style="padding:10px 4px;color:var(--muted);font-size:11px;line-height:1.5">
+         Appears automatically when Hermes spawns child sessions (MOA / parallel workers).</div>`);
+  }
+  sheetChat.scrollTop=0;
+}
 async function openSheet(id){
-  const a=byId[id]||{};
-  const last=a.lastActive?new Date(a.lastActive*1000).toLocaleString():'—';
+  const a=byId[id]||SPECIAL[id]||{};
+  const special=!!SPECIAL[id];
+  const active=special?(id==='office'?COLLAB.active:SUBAGENTS.length>0):false;
+  const stKey=special?(active?'working':'idle'):a.status;
+  const stLabel=special?(active?(id==='office'?'Collaborating':`${SUBAGENTS.length} live`):'Empty'):(a.statusLabel||'');
+  const last=(!special&&a.lastActive)?new Date(a.lastActive*1000).toLocaleString():'—';
   sheetHd.innerHTML=`<span class="em">${a.emoji||''}</span>
     <div><h2>${esc(a.name||id)}</h2>
-    <div class="st"><span class="dot" style="background:${DOT_HEX[a.status]||'#4a4560'};box-shadow:0 0 6px ${DOT_HEX[a.status]||'transparent'}"></span>${esc(a.statusLabel||'')} · last: ${esc(last)}</div></div>
+    <div class="st"><span class="dot" style="background:${DOT_HEX[stKey]||'#4a4560'};box-shadow:0 0 6px ${DOT_HEX[stKey]||'transparent'}"></span>${esc(stLabel)}${special?'':` · last: ${esc(last)}`}</div></div>
     <button class="x" onclick="closeSheet()">✕</button>`;
   sheetDesc.innerHTML=`<div style="opacity:.7">${esc(a.description||'')}</div>`;
   sheetChat.innerHTML='<div class="lbl">LOADING…</div>';
   sheet.classList.add('open');sheetBack.classList.add('open');
+  if(special){renderSpecialSheet(id);return;}
   let feed=[], cronMap={};
   try{
     const[f,c]=await Promise.all([

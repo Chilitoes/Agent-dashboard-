@@ -1,12 +1,15 @@
 # Agent Village Dashboard
 
-A real-time, read-only **window** into your Hermes agents. Nine agents are shown
-as a 3×3 village of flat tiles; when the General agent delegates work, a walker
-sprite walks from General's room to the target agent's room.
+A real-time, read-only **window** into your Hermes agents. The village is a
+packed pixel-art floor plan of varied rooms connected by a central walkable
+corridor. When General delegates, he pauses to decide, walks down the corridor
+to the target agent, the agent works, and replies — all driven by the real
+traces in `~/.hermes/state.db`.
 
 The dashboard never thinks or acts on its own — **General does all the
-delegating using his own intelligence**. The dashboard only observes the traces
-that leaves in `~/.hermes/state.db` and animates them.
+delegating using his own intelligence**. The dashboard only observes and
+animates. See [`docs/HERMES_PROMPT.md`](docs/HERMES_PROMPT.md) for the markers to
+teach General.
 
 ![board](docs/board.png)
 
@@ -14,12 +17,16 @@ that leaves in `~/.hermes/state.db` and animates them.
 
 | Concern | Signal used |
 |---|---|
-| **Status** (working/active/idle/afk/offline) | session lifecycle (open sessions) + most-recent message timestamp per `thread_id` |
-| **Delegation** (the walk) | a child session spawned under General's thread (`parent.thread_id = 1`) whose own `thread_id` belongs to another agent — i.e. the real hand-off General created |
-| **"Working" hint** | running cron jobs in `~/.hermes/cron/jobs.json` |
+| **Status** (working/idle/offline/done) | most-recent message per `thread_id`, running cron jobs, and `[[done: …]]` markers |
+| **Delegation** (the walk) | a child session spawned under General's thread **or** a `[[delegate: agent \| task]]` marker in his reply |
+| **Completion** (instant idle + TLDR) | `[[done: agent \| result]]` marker — no waiting on an idle window |
+| **Collaboration** (the Office) | `[[collab: a, b \| task]]` marker — named agents walk to the shared Office |
+| **Sub-agents** (the Bay) | child sessions Hermes spawns (`sessions.parent_session_id`) — no marker needed |
+| **Current task** (chip on the map) | the live delegation/cron the agent is on |
 
-There is **no chat-text parsing** and **no Todoist writes** — delegation is
-detected structurally, and side effects belong to Hermes, not the viewer.
+Delegation, completion and collaboration are General's own explicit decisions
+(markers) — the keyword heuristic only bootstraps before markers are adopted.
+**No Todoist writes** — side effects belong to Hermes, not the viewer.
 
 ## Files
 
@@ -59,8 +66,11 @@ curl localhost:8765/api/diagnostics
 - `GET /agents.json` — shared agent registry
 - `GET /api/agents` — agents with live status + diagnostics
 - `GET /api/delegations?since=<epoch>` — recent delegation events
-- `GET /api/agents/stream` — SSE; pushes updates only when the DB changes
-  (cheap `MAX(messages.id)` watermark), with a 15s heartbeat
+- `GET /api/cron` — cron jobs grouped by agent (human-readable schedules)
+- `GET /api/collab` — the active collaboration session, if any
+- `GET /api/subagents` — live spawned sub-agent sessions
+- `GET /api/agents/stream` — SSE; pushes agents + collab + subagents when the DB
+  changes (cheap `MAX(messages.id)` watermark), with a 15s heartbeat
 
 ## Schema assumptions
 
